@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Neuron runtime state
+.compilerforge/
+audit/
+wallets/
+*.log
+
+# Measurement and build artefacts
+callgrind.out*
+cachegrind.out*
+massif.out*
+perf.data*
+corpus/**/build/
+corpus/**/repo/build/
+
+# Local agent/editor state
+.claude/
+
+# Never commit these
+*.pem
+*.key
+.env

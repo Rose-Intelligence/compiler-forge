@@ -1,0 +1,121 @@
+# Minimum compute requirements for CompilerForge neurons.
+#
+# The asymmetry between the two roles is deliberate. A miner runs an optimization
+# search: build, profile, edit, rebuild, verify, repeat. A validator runs the
+# verification of a patch someone else produced, which is far cheaper — and the
+# deterministic measurement tier executes on a simulated CPU, so the verification
+# fleet can be cheap, elastic and heterogeneous.
+#
+# Only the optional wall-clock host has strict hardware requirements, because a
+# wall-clock number from a shared or virtualised machine is not a measurement.
+
+version: '0.1.0'
+
+compute_spec:
+
+  miner:
+    # Miners run their own agent locally while developing it, which means
+    # repeated builds and repeated instrumented runs. Cores pay for themselves.
+    cpu:
+      min_cores: 8
+      min_speed: 2.5
+      recommended_cores: 16
+      recommended_speed: 3.5
+      architecture: "x86_64"
+
+    gpu:
+      required: False
+      # V1 competes on the optimization harness, not on model access. Validators
+      # supply a pinned model through a metered proxy, so no local accelerator is
+      # needed to compete.
+
+    memory:
+      min_ram: 16
+      min_swap: 4
+      recommended_swap: 8
+      ram_type: "DDR4"
+
+    storage:
+      min_space: 100
+      recommended_space: 500
+      type: "SSD"
+      min_iops: 1000
+      recommended_iops: 5000
+
+    os:
+      name: "Ubuntu"
+      version: 22.04
+
+  validator:
+    # The verification fleet. Scales horizontally: more cores means more
+    # candidates verified per round, not better measurements.
+    cpu:
+      min_cores: 8
+      min_speed: 2.5
+      recommended_cores: 32
+      recommended_speed: 3.5
+      architecture: "x86_64"
+
+    gpu:
+      required: False
+
+    memory:
+      min_ram: 32
+      min_swap: 8
+      recommended_swap: 16
+      ram_type: "DDR4"
+
+    storage:
+      # Baseline builds, dependency trees and reference measurements are
+      # immutable per (revision, toolchain) and cached forever. The cache grows
+      # with the corpus, not with the number of rounds.
+      min_space: 500
+      recommended_space: 2000
+      type: "SSD"
+      min_iops: 3000
+      recommended_iops: 10000
+
+    os:
+      name: "Ubuntu"
+      version: 22.04
+
+network_spec:
+  bandwidth:
+    download: 200   # Mbps — pulling miner artifact images dominates
+    upload: 50      # Mbps
+
+# Optional, and only for validators that want to contribute wall-clock evidence.
+# Consensus does not require it: the deterministic tier decides scores, and a
+# validator without this host still carries a full weight.
+calibrated_wall_clock_host:
+  required: False
+  notes: >
+    Must be dedicated bare metal. Shared or virtualised hardware invalidates the
+    measurement entirely. Required configuration: CPU frequency governor pinned to
+    performance, turbo disabled, cores isolated via isolcpus, fixed NUMA placement,
+    address-space randomisation disabled for the measured process, and thermal
+    monitoring so a drifting window can be rejected rather than corrected.
+  cpu:
+    min_cores: 8
+    architecture: "x86_64"
+  memory:
+    min_ram: 32
+
+required_software:
+  - name: "valgrind"
+    reason: >
+      Provides the deterministic measurement tier. This is the consensus-bearing
+      measurement; a validator without it cannot produce comparable weights and
+      will refuse to start.
+  - name: "clang"
+    reason: "The pinned V1 toolchain, including the sanitizers used as hard gates."
+  - name: "cmake"
+    reason: "Build driver for the corpus packages."
+  - name: "docker"
+    reason: "Pulls and runs miner artifacts by digest."
+  - name: "gvisor (runsc) or kata-containers"
+    reason: >
+      A validator holds a hotkey on the same machine that runs untrusted miner
+      code. Shared-kernel containers alone are not a sufficient boundary; the
+      validator refuses to start without a hardened runtime unless explicitly
+      overridden for local development.

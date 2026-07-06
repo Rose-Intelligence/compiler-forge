@@ -1,0 +1,58 @@
+[project]
+name = "compilerforge"
+version = "0.1.0"
+description = "CompilerForge — verified autonomous software performance engineering on Bittensor"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "bittensor>=11.0.1",
+    "pydantic>=2.9",
+    "numpy>=1.26",
+    "typer>=0.12",
+    "rich>=13.7",
+    "httpx>=0.27",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+cf-validator = "compilerforge.validator.main:app"
+cf-miner = "compilerforge.miner.cli:app"
+cf-eval = "compilerforge.sdk.cli:app"
+cf-corpus = "compilerforge.corpus.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["compilerforge"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+# Tests are plain functions. Narrowing this keeps pytest from trying to collect
+# protocol classes whose names begin with "Test" — TestContract is a wire schema,
+# not a test suite.
+python_classes = []
+markers = [
+    "slow: exercises the real toolchain (builds, sanitizers, Callgrind)",
+]
