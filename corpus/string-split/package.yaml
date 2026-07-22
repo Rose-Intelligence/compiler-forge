@@ -1,0 +1,89 @@
+# string-split — a delimited-field parser with real, non-bug inefficiency.
+#
+# This package is the worked example the rest of the corpus is modelled on. The
+# baseline is correct and passes every test; it is simply doing more work than
+# the job requires — a quadratic length scan, an array grown one element at a
+# time, and a malloc/free pair per line. That is the shape of target this
+# network exists to find, and no compiler flag reaches any of it.
+
+package_id: string-split
+family: parsing
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+# Public packages appear in the published manifest. Set this true for a package
+# held out of every listing, used only to measure generalisation.
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+# Flags that would let a candidate change the terms it is measured under rather
+# than the work the program does.
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_csvsplit
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+# Reads one hidden input on stdin and prints every declared observable. Kept
+# separate from the benchmark, which is argument-driven and prints a summary.
+differential_command: ./build/differential
+objective: balanced
+
+# Callgrind runs with instrumentation off at start; these markers bracket the
+# region actually measured, so process startup and input generation are excluded.
+measured_region: cf_bench_start/cf_bench_stop
+
+# The round draws one of these from the block hash. Unpublished profiles keep a
+# miner from tuning to the sizes it can read in the manifest.
+workload_profiles:
+  - name: default
+    args: ["--lines", "800", "--fields", "10", "--repeats", "3"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 1.315528
+  - name: wide
+    args: ["--lines", "300", "--fields", "40", "--repeats", "3"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 1.645072
+  - name: tall
+    args: ["--lines", "4000", "--fields", "4", "--repeats", "2"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 1.307483
+  - name: dense-unpublished
+    args: ["--lines", "1500", "--fields", "24", "--repeats", "2", "--seed", "0x9e37"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 1.620360
+
+# The parse tree must be identical; whitespace in the serialised form may move.
+equivalence_discipline: structural
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+# Coverage-guided fuzz targets, built by the package and mounted read-only. A
+# miner-supplied fuzz target would be one that finds nothing.
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

@@ -1,0 +1,81 @@
+# token-count — a word frequency counter, held out of the published corpus.
+#
+# This package exists to measure generalisation. It appears in no manifest a
+# miner can read, so an artifact that scores well here has transferred technique
+# rather than memorised a target.
+#
+# Its inefficiency is deliberately a different shape from string-split's: not a
+# redundant scan or an allocation pattern, but a data structure that is wrong for
+# the access pattern. Fixing it requires replacing a linear array with an index
+# while keeping a public struct layout that cannot grow a field — which is the
+# kind of constraint real optimization work actually runs into.
+
+package_id: token-count
+family: data_structures
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: true
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_tokencount
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+# Reads one hidden input on stdin and prints every declared observable. Kept
+# separate from the benchmark, which is argument-driven and prints a summary.
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+# Vocabulary size is what decides how badly the linear scan hurts, so it is the
+# axis the profiles vary. The reference is worth ~4x on the smallest and ~10x on
+# the largest, which is precisely why each profile carries its own S_ref.
+workload_profiles:
+  - name: small-vocabulary
+    args: ["--tokens", "12000", "--vocabulary", "40", "--repeats", "2"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 4.049039
+  - name: medium-vocabulary
+    args: ["--tokens", "12000", "--vocabulary", "80", "--repeats", "2"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 6.755901
+  - name: large-vocabulary
+    args: ["--tokens", "12000", "--vocabulary", "150", "--repeats", "2"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 10.295934
+
+# Word counts must match exactly; the order a data structure stores them in is
+# not part of the contract, and the differential harness sorts before comparing.
+equivalence_discipline: structural
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

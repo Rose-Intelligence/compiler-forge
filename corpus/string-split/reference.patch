@@ -1,0 +1,158 @@
+--- a/src/csvsplit.c
++++ b/src/csvsplit.c
+@@ -17,9 +17,8 @@
+     }
+ 
+     size_t count = 1;
+-    /* Recomputes the length on every iteration of the loop below. */
+-    for (size_t i = 0; i < strlen(line); i++) {
+-        if (line[i] == delim) {
++    for (const char *p = line; *p != '\0'; p++) {
++        if (*p == delim) {
+             count++;
+         }
+     }
+@@ -32,20 +31,26 @@
+         return s;
+     }
+ 
+-    size_t start = 0;
+-    while (s[start] != '\0' && isspace((unsigned char)s[start])) {
++    const char *start = s;
++    while (*start != '\0' && isspace((unsigned char)*start)) {
+         start++;
+     }
+ 
+-    if (start > 0) {
+-        memmove(s, s + start, strlen(s + start) + 1);
++    const char *end = start;
++    const char *last_non_space = NULL;
++    for (const char *p = start; *p != '\0'; p++) {
++        if (!isspace((unsigned char)*p)) {
++            last_non_space = p;
++        }
++        end = p;
+     }
++    (void)end;
+ 
+-    size_t len = strlen(s);
+-    while (len > 0 && isspace((unsigned char)s[len - 1])) {
+-        s[len - 1] = '\0';
+-        len--;
++    const size_t len = (last_non_space != NULL) ? (size_t)(last_non_space - start) + 1 : 0;
++    if (start != s) {
++        memmove(s, start, len);
+     }
++    s[len] = '\0';
+     return s;
+ }
+ 
+@@ -63,28 +68,24 @@
+     }
+ 
+     const size_t total = csv_count_fields(line, delim);
+-    char **fields = NULL;
+-    size_t written = 0;
+ 
++    /* The field count is known up front, so the array is allocated once instead
++     * of grown one element at a time. */
++    char **fields = malloc(total * sizeof(char *));
++    if (fields == NULL) {
++        return -1;
++    }
++
++    size_t written = 0;
+     const char *cursor = line;
++
+     for (size_t i = 0; i < total; i++) {
+         const char *end = strchr(cursor, delim);
+         const size_t span = (end != NULL) ? (size_t)(end - cursor) : strlen(cursor);
+ 
+-        /* Grows the array one element at a time: quadratic in copies. */
+-        char **grown = realloc(fields, ++written * sizeof(char *));
+-        if (grown == NULL) {
+-            for (size_t j = 0; j + 1 < written; j++) {
+-                free(fields[j]);
+-            }
+-            free(fields);
+-            return -1;
+-        }
+-        fields = grown;
+-
+         char *field = malloc(span + 1);
+         if (field == NULL) {
+-            for (size_t j = 0; j + 1 < written; j++) {
++            for (size_t j = 0; j < written; j++) {
+                 free(fields[j]);
+             }
+             free(fields);
+@@ -92,7 +93,7 @@
+         }
+         memcpy(field, cursor, span);
+         field[span] = '\0';
+-        fields[written - 1] = field;
++        fields[written++] = field;
+ 
+         if (end == NULL) {
+             break;
+@@ -127,30 +128,46 @@
+     unsigned long hash = 5381UL;
+     const char *line_start = text;
+ 
++    /* One reusable line buffer instead of a malloc/free pair per line. */
++    size_t buffer_capacity = 256;
++    char *line = malloc(buffer_capacity);
++    if (line == NULL) {
++        return hash;
++    }
++
+     while (*line_start != '\0') {
+         const char *newline = strchr(line_start, '\n');
+         const size_t line_len =
+             (newline != NULL) ? (size_t)(newline - line_start) : strlen(line_start);
+ 
+-        char *line = malloc(line_len + 1);
+-        if (line == NULL) {
+-            return hash;
++        if (line_len + 1 > buffer_capacity) {
++            size_t grown_capacity = buffer_capacity;
++            while (grown_capacity < line_len + 1) {
++                grown_capacity *= 2;
++            }
++            char *grown = realloc(line, grown_capacity);
++            if (grown == NULL) {
++                free(line);
++                return hash;
++            }
++            line = grown;
++            buffer_capacity = grown_capacity;
+         }
++
+         memcpy(line, line_start, line_len);
+         line[line_len] = '\0';
+ 
+         csv_row row;
+         if (csv_split(line, delim, &row) == 0) {
+             for (size_t i = 0; i < row.count; i++) {
+-                char *field = csv_trim(row.fields[i]);
+-                for (size_t j = 0; field[j] != '\0'; j++) {
+-                    hash = ((hash << 5) + hash) + (unsigned char)field[j];
++                const char *field = csv_trim(row.fields[i]);
++                for (const char *p = field; *p != '\0'; p++) {
++                    hash = ((hash << 5) + hash) + (unsigned char)*p;
+                 }
+                 hash = ((hash << 5) + hash) + (unsigned long)i;
+             }
+             csv_row_free(&row);
+         }
+-        free(line);
+ 
+         if (newline == NULL) {
+             break;
+@@ -158,5 +175,6 @@
+         line_start = newline + 1;
+     }
+ 
++    free(line);
+     return hash;
+ }

@@ -1,0 +1,262 @@
+--- a/src/tokencount.c
++++ b/src/tokencount.c
+@@ -10,19 +10,33 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
+-void tc_init(tc_table *table)
++/* The public tc_table layout is part of the API contract and cannot grow a
++ * field, so the hash index lives beside the table rather than inside it. Entries
++ * keep their insertion order and their public layout; only the cost of finding
++ * one changes. */
++
++#define TC_EMPTY_SLOT ((size_t)-1)
++#define TC_MAX_TRACKED_TABLES 8
++
++typedef struct {
++    const tc_table *owner;
++    size_t *slots;
++    size_t slot_count;
++} tc_index;
++
++static tc_index g_indices[TC_MAX_TRACKED_TABLES];
++
++static unsigned long tc_hash(const char *word)
+ {
+-    if (table == NULL) {
+-        return;
++    unsigned long hash = 5381UL;
++    for (const char *p = word; *p != '\0'; p++) {
++        hash = ((hash << 5) + hash) + (unsigned char)*p;
+     }
+-    table->entries = NULL;
+-    table->size = 0;
+-    table->capacity = 0;
++    return hash;
+ }
+ 
+-static tc_entry *tc_find(const tc_table *table, const char *word)
++static tc_entry *tc_find_linear(const tc_table *table, const char *word)
+ {
+-    /* Linear scan of every entry on every single insert and lookup. */
+     for (size_t i = 0; i < table->size; i++) {
+         if (strcmp(table->entries[i].word, word) == 0) {
+             return &table->entries[i];
+@@ -31,6 +45,136 @@
+     return NULL;
+ }
+ 
++/* Returns the index slot for `table`, claiming a free one if needed, or NULL
++ * when every slot is taken. A NULL result is not an error: the caller falls back
++ * to the linear scan, so behaviour is identical for any number of live tables. */
++static tc_index *tc_index_for(const tc_table *table)
++{
++    for (int i = 0; i < TC_MAX_TRACKED_TABLES; i++) {
++        if (g_indices[i].owner == table) {
++            return &g_indices[i];
++        }
++    }
++    for (int i = 0; i < TC_MAX_TRACKED_TABLES; i++) {
++        if (g_indices[i].owner == NULL) {
++            g_indices[i].owner = table;
++            g_indices[i].slots = NULL;
++            g_indices[i].slot_count = 0;
++            return &g_indices[i];
++        }
++    }
++    return NULL;
++}
++
++static void tc_index_discard(tc_index *index)
++{
++    free(index->slots);
++    index->slots = NULL;
++    index->slot_count = 0;
++}
++
++/* Rebuild at twice the entry count, rounded up to a power of two, so probing can
++ * mask instead of dividing and the load factor stays below one half. */
++static int tc_index_rebuild(tc_index *index, const tc_table *table)
++{
++    size_t count = 16;
++    while (count < table->size * 2 + 1) {
++        count *= 2;
++    }
++
++    size_t *slots = malloc(count * sizeof(size_t));
++    if (slots == NULL) {
++        return -1;
++    }
++    for (size_t i = 0; i < count; i++) {
++        slots[i] = TC_EMPTY_SLOT;
++    }
++
++    for (size_t i = 0; i < table->size; i++) {
++        size_t probe = (size_t)tc_hash(table->entries[i].word) & (count - 1);
++        while (slots[probe] != TC_EMPTY_SLOT) {
++            probe = (probe + 1) & (count - 1);
++        }
++        slots[probe] = i;
++    }
++
++    free(index->slots);
++    index->slots = slots;
++    index->slot_count = count;
++    return 0;
++}
++
++static tc_entry *tc_find(const tc_table *table, const char *word)
++{
++    if (table->size == 0) {
++        return NULL;
++    }
++
++    tc_index *index = tc_index_for(table);
++    if (index == NULL) {
++        return tc_find_linear(table, word);
++    }
++
++    if (index->slots == NULL || index->slot_count < table->size * 2 + 1) {
++        if (tc_index_rebuild(index, table) != 0) {
++            return tc_find_linear(table, word);
++        }
++    }
++
++    const size_t count = index->slot_count;
++    size_t probe = (size_t)tc_hash(word) & (count - 1);
++    while (index->slots[probe] != TC_EMPTY_SLOT) {
++        const size_t entry = index->slots[probe];
++        if (entry < table->size && strcmp(table->entries[entry].word, word) == 0) {
++            return &table->entries[entry];
++        }
++        probe = (probe + 1) & (count - 1);
++    }
++    return NULL;
++}
++
++static void tc_index_note_insert(const tc_table *table)
++{
++    tc_index *index = tc_index_for(table);
++    if (index == NULL || index->slots == NULL) {
++        return;
++    }
++    if (index->slot_count < table->size * 2 + 1) {
++        /* Would exceed the load factor; drop it and let the next lookup rebuild. */
++        tc_index_discard(index);
++        return;
++    }
++    const size_t count = index->slot_count;
++    size_t probe = (size_t)tc_hash(table->entries[table->size - 1].word) & (count - 1);
++    while (index->slots[probe] != TC_EMPTY_SLOT) {
++        probe = (probe + 1) & (count - 1);
++    }
++    index->slots[probe] = table->size - 1;
++}
++
++static void tc_index_release(const tc_table *table)
++{
++    for (int i = 0; i < TC_MAX_TRACKED_TABLES; i++) {
++        if (g_indices[i].owner == table) {
++            tc_index_discard(&g_indices[i]);
++            g_indices[i].owner = NULL;
++        }
++    }
++}
++
++void tc_init(tc_table *table)
++{
++    if (table == NULL) {
++        return;
++    }
++    /* A previous table may have lived at this address and been freed without
++     * tc_free; releasing here keeps a stale index from being consulted. */
++    tc_index_release(table);
++    table->entries = NULL;
++    table->size = 0;
++    table->capacity = 0;
++}
++
+ int tc_add(tc_table *table, const char *word)
+ {
+     if (table == NULL || word == NULL || *word == '\0') {
+@@ -53,15 +197,17 @@
+         table->capacity = grown;
+     }
+ 
+-    char *copy = malloc(strlen(word) + 1);
++    const size_t length = strlen(word);
++    char *copy = malloc(length + 1);
+     if (copy == NULL) {
+         return -1;
+     }
+-    memcpy(copy, word, strlen(word) + 1);
++    memcpy(copy, word, length + 1);
+ 
+     table->entries[table->size].word = copy;
+     table->entries[table->size].count = 1;
+     table->size++;
++    tc_index_note_insert(table);
+     return 0;
+ }
+ 
+@@ -76,7 +222,11 @@
+ 
+ void tc_free(tc_table *table)
+ {
+-    if (table == NULL || table->entries == NULL) {
++    if (table == NULL) {
++        return;
++    }
++    tc_index_release(table);
++    if (table->entries == NULL) {
+         return;
+     }
+     for (size_t i = 0; i < table->size; i++) {
+@@ -108,16 +258,25 @@
+             cursor++;
+         }
+ 
++        /* Most tokens fit in a small stack buffer, so the common path allocates
++         * nothing at all. */
+         const size_t length = (size_t)(cursor - start);
+-        char *word = malloc(length + 1);
+-        if (word == NULL) {
+-            return -1;
++        char stack_word[64];
++        char *heap_word = NULL;
++        char *word = stack_word;
++
++        if (length + 1 > sizeof(stack_word)) {
++            heap_word = malloc(length + 1);
++            if (heap_word == NULL) {
++                return -1;
++            }
++            word = heap_word;
+         }
+         memcpy(word, start, length);
+         word[length] = '\0';
+ 
+         const int rc = tc_add(table, word);
+-        free(word);
++        free(heap_word);
+         if (rc != 0) {
+             return rc;
+         }
+@@ -131,16 +290,9 @@
+         return 0UL;
+     }
+ 
+-    /* Summed rather than chained, so the digest does not depend on the order
+-     * entries happen to be stored in. A candidate is free to change that order;
+-     * it is not free to change the counts. */
+     unsigned long total = 0UL;
+     for (size_t i = 0; i < table->size; i++) {
+-        unsigned long hash = 5381UL;
+-        for (const char *p = table->entries[i].word; *p != '\0'; p++) {
+-            hash = ((hash << 5) + hash) + (unsigned char)*p;
+-        }
+-        total += hash * (unsigned long)table->entries[i].count;
++        total += tc_hash(table->entries[i].word) * (unsigned long)table->entries[i].count;
+     }
+     return total;
+ }
