@@ -151,6 +151,75 @@ def patch(
 
 
 @app.command()
+def onboard(
+    project: Path = typer.Argument(..., help="Directory holding your source tree"),
+    out: Path = typer.Option(..., "--out", help="Where to write the task package"),
+    package_id: str = typer.Option("my-project", help="Identifier for this package"),
+    family: str = typer.Option("cli_utilities", help="Workload family"),
+    bench_args: str = typer.Option("", help="Arguments passed to the benchmark"),
+    force: bool = typer.Option(False, help="Overwrite an existing package"),
+) -> None:
+    """Turn a source tree into a task package this pipeline can measure.
+
+    Detects the build system, reads the test and benchmark targets out of the
+    build definition, works out which directories a candidate may rewrite, and
+    decides whether the benchmark can be measured between markers or has to be
+    measured whole. Whatever it could not determine is reported rather than
+    guessed.
+    """
+    import shutil
+
+    from compilerforge.corpus.scaffold import ScaffoldError, detect, write_package
+
+    if out.exists():
+        if not force:
+            console.print(f"[red]{out} already exists. Pass --force to overwrite.[/red]")
+            raise typer.Exit(2)
+        shutil.rmtree(out)
+
+    try:
+        out.mkdir(parents=True)
+        shutil.copytree(project, out / "repo")
+        detected = detect(out / "repo")
+    except ScaffoldError as exc:
+        shutil.rmtree(out, ignore_errors=True)
+        console.print(f"[red]Cannot onboard this project:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    argv = bench_args.split() if bench_args else []
+
+    table = Table(title="Detected")
+    table.add_column("Field")
+    table.add_column("Value", overflow="fold")
+    for key, value in detected.to_dict().items():
+        if key in ("warnings", "missing", "ready"):
+            continue
+        table.add_row(key, str(value))
+    console.print(table)
+
+    if detected.missing:
+        console.print("[red]Not enough information to build a package:[/red]")
+        for item in detected.missing:
+            console.print(f"  • {item}")
+        shutil.rmtree(out, ignore_errors=True)
+        raise typer.Exit(1)
+
+    write_package(
+        detected, out, package_id=package_id, family=family, benchmark_args=argv,
+        differential_argument_sets=[argv] if argv else None,
+    )
+
+    for warning in detected.warnings:
+        console.print(f"[yellow]note:[/yellow] {warning}")
+
+    console.print(
+        f"\n[green]Package written to {out}[/green]\n"
+        f"Verify a patch against it with:\n"
+        f"  cf-eval verify {out} --patch your.diff"
+    )
+
+
+@app.command()
 def verify(
     package: Path = typer.Argument(..., help="Task package directory"),
     patch_file: Path = typer.Option(..., "--patch", help="Unified diff to verify"),

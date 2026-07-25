@@ -425,8 +425,47 @@ def _hoist_loop_invariant_strlen(source: str) -> str | None:
 
 
 def _loop_body(source: str, from_index: int) -> str | None:
-    """Return the brace-delimited body of the loop starting at ``from_index``."""
-    open_index = source.find("{", from_index)
+    """Return the body of the loop whose header ends at ``from_index``.
+
+    The header match consumes the rest of its line, including the opening brace
+    when the body is braced. Searching forward for the next ``{`` therefore found
+    the *following* block — a different function — and the write analysis was run
+    against code that had nothing to do with the loop. An unbraced loop that
+    truncated its string was hoisted as safe on the strength of an unrelated
+    function containing no writes.
+
+    So the brace is looked for only on the header's own line. A loop whose body
+    is a single unbraced statement is returned as that statement, and one whose
+    body cannot be delimited at all returns None so the caller declines.
+    """
+    line_end = source.find("\n", from_index)
+    if line_end < 0:
+        line_end = len(source)
+    header_tail = source[from_index:line_end]
+
+    if "{" in header_tail:
+        open_index = from_index + header_tail.index("{")
+    elif from_index > 0 and source[from_index - 1] == "{":
+        # The regex ended exactly on the brace.
+        open_index = from_index - 1
+    else:
+        # Unbraced: the body is the next statement. Everything up to the first
+        # semicolon at nesting depth zero.
+        depth = 0
+        for i in range(from_index, len(source)):
+            char = source[i]
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+            elif char == "{":
+                # A brace on a later line still belongs to this loop.
+                open_index = i
+                break
+            elif char == ";" and depth <= 0:
+                return source[from_index : i + 1]
+        else:
+            return None
     if open_index < 0:
         return None
     depth = 0

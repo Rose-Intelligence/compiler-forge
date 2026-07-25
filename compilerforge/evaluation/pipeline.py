@@ -365,11 +365,19 @@ class Evaluator:
         base_counters = (
             list(baseline.tier_a_counters)
             if baseline is not None
-            else self.ctx.tier_a.measure(task.benchmark.command, cwd=base_ws.root)
+            else self.ctx.tier_a.measure(
+                task.benchmark.command,
+                cwd=base_ws.root,
+                instrument_at_start=task.benchmark.instrument_at_start,
+            )
         )
 
         try:
-            cand_counters = self.ctx.tier_a.measure(task.benchmark.command, cwd=cand_ws.root)
+            cand_counters = self.ctx.tier_a.measure(
+            task.benchmark.command,
+            cwd=cand_ws.root,
+            instrument_at_start=task.benchmark.instrument_at_start,
+        )
         except MeasurementError as exc:
             raise CandidateUnmeasurable(
                 f"the patched build could not be measured: {exc}"

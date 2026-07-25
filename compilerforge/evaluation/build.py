@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 
 from compilerforge.corpus.package import inventory_hash
 from compilerforge.protocol.score import GateName, GateResult
+from compilerforge.corpus.globs import matches_any
 from compilerforge.protocol.task import Task
 from compilerforge.spec import SPEC
 
@@ -121,8 +122,9 @@ def check_patch_hygiene(patch: str, task: Task) -> GateResult:
 
 
 def _is_patchable(relative_path: str, patterns: tuple[str, ...]) -> bool:
-    candidate = PurePosixPath(relative_path)
-    return any(candidate.match(pattern) for pattern in patterns)
+    # Shared with the immutable-tree hash. The two must agree exactly, or a file
+    # accepted as a legal edit is then rejected as a tree modification.
+    return matches_any(relative_path, patterns)
 
 
 def check_immutable_tree(workspace: Workspace, task: Task) -> GateResult:
