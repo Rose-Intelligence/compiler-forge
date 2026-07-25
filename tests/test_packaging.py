@@ -229,3 +229,35 @@ def test_the_package_installs_and_imports_in_a_clean_environment():
         assert check.returncode == 0, (
             "the package installs but does not import cleanly:\n" + check.stdout
         )
+
+
+# ---------------------------------------------------------------------------
+# the commands the documentation tells people to run
+# ---------------------------------------------------------------------------
+
+
+def test_the_sdk_cli_exposes_the_commands_the_readme_documents():
+    """A README that names a command the CLI does not have wastes someone's hour.
+
+    The console scripts are checked above for pointing at a real module; this
+    checks the module actually defines the subcommands the quick start uses.
+    """
+    from compilerforge.sdk.cli import app
+
+    names = {command.name or command.callback.__name__ for command in app.registered_commands}
+    for expected in ("onboard", "verify", "patch", "gates", "spec", "preflight"):
+        assert expected in names, f"cf-eval has no {expected!r} command: {sorted(names)}"
+
+
+def test_the_readme_only_names_commands_that_exist():
+    readme = (REPO / "README.md").read_text()
+    declared = set(_console_scripts())
+    for line in readme.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("cf-"):
+            continue
+        command = stripped.split()[0].rstrip("`")
+        assert command in declared, (
+            f"README runs {command!r}, which is not a declared console script. "
+            f"Declared: {sorted(declared)}"
+        )
