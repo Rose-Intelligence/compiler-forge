@@ -143,10 +143,26 @@ def test_every_status_renders():
 
 @pytest.mark.parametrize("command", ["preflight", "hyperparameters"])
 def test_the_cli_exposes_its_commands(command):
+    """Both commands exist, render help, and take --netuid.
+
+    Asserts against the command *definition* rather than the rendered help text.
+    Rich wraps to the terminal width, so an 80-column CI runner splits long
+    option names across lines and a substring check on the output passes locally
+    and fails there — which is exactly what happened the first time this ran.
+    """
     from typer.testing import CliRunner
 
     from compilerforge.validator.cli import app
 
     result = CliRunner().invoke(app, [command, "--help"])
-    assert result.exit_code == 0
-    assert "--netuid" in result.output
+    assert result.exit_code == 0, result.output
+
+    registered = {c.name or c.callback.__name__: c for c in app.registered_commands}
+    assert command in registered, f"{command} is not registered; have {sorted(registered)}"
+
+    params = {
+        opt
+        for name in registered[command].callback.__annotations__
+        for opt in [name]
+    }
+    assert "netuid" in params, f"{command} does not take netuid; takes {sorted(params)}"
