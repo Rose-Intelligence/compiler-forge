@@ -57,12 +57,13 @@ Do not skip the hardened container runtime. This machine holds a hotkey and runs
 anonymous code submitted by competitors.
 
 ```bash
-sudo apt-get install -y clang cmake valgrind git
+sudo apt-get install -y clang cmake valgrind git time
 # plus gVisor or Kata — see docs/validator.md
-cf-eval preflight
+cf-validator preflight --netuid <netuid>
 ```
 
-Every line of preflight should read green before you register.
+Preflight must exit 0 before you register. A `BLOCKING` line means this host
+would either refuse to start or produce scores nobody else can reproduce.
 
 ### 2. Register and acquire stake
 
