@@ -52,6 +52,11 @@ def token_count() -> LoadedPackage:
     return LoadedPackage.load(CORPUS / "token-count")
 
 
+@pytest.fixture(scope="module")
+def matrix_stats() -> LoadedPackage:
+    return LoadedPackage.load(CORPUS / "matrix-stats")
+
+
 @requires_toolchain
 def test_the_reference_patch_captures_exactly_its_own_reference(evaluator, string_split):
     """The definition of the capture scale, checked against itself.
@@ -358,3 +363,72 @@ def test_a_build_with_the_wrong_compiler_is_rejected(evaluator, string_split, tm
     # The cache now records gcc. Checking it against the clang pin must raise.
     with pytest.raises(ToolchainMismatch, match="toolchain digest"):
         Builder()._assert_pinned_compiler_was_used(workspace, "clang")
+
+
+@requires_toolchain
+def test_a_patch_spanning_several_source_files_is_evaluated_whole(
+    evaluator, matrix_stats
+):
+    """A candidate may restructure across translation units.
+
+    Both single-file packages happen to have one source file each, so for a long
+    time nothing exercised the multi-file path even though the patch scope is a
+    glob and the changed-file cap is 25. This package spreads the inefficiency
+    across three translation units deliberately: element access in matrix.c, the
+    redundant traversals in vector.c, and the column gather and per-element
+    Newton iteration in stats.c.
+
+    A candidate that rewrites only one of them leaves most of the cost behind, so
+    this asserts the whole patch is applied and measured as one unit.
+    """
+    task = evaluator.build_task(matrix_stats, seed="0xmulti")
+    patch = (CORPUS / "matrix-stats" / "reference.patch").read_text()
+
+    result = evaluator.evaluate_patch(patch, task)
+
+    assert result.score is not None, result.voided_reason
+    assert result.score.all_gates_passed(), result.summary()
+
+    hygiene = next(
+        g for g in result.score.gates if str(g.name) == "patch_hygiene"
+    )
+    assert hygiene.detail.startswith("3 files"), hygiene.detail
+
+    touched = {
+        line[6:].strip()
+        for line in patch.splitlines()
+        if line.startswith("--- a/")
+    }
+    assert touched == {"src/matrix.c", "src/vector.c", "src/stats.c"}, touched
+
+    # The improvement has to come from the combination. Each file alone is a
+    # fraction of it, so a materially lower speedup would mean only part of the
+    # patch took effect.
+    assert result.score.tier_a is not None
+    assert result.score.tier_a.deterministic_speedup > 2.0
+
+
+@requires_toolchain
+def test_a_patch_that_edits_a_public_header_is_rejected(evaluator, matrix_stats):
+    """include/** is patchable, but the ABI gate still owns the public surface.
+
+    A candidate may add an internal header; it may not change a declaration
+    callers outside the package compile against.
+    """
+    task = evaluator.build_task(matrix_stats, seed="0xheader")
+    patch = (
+        "--- a/include/mstats.h\n"
+        "+++ b/include/mstats.h\n"
+        "@@ -20,7 +20,7 @@\n"
+        " /* Allocation. Returns NULL on failure; ms_matrix_free tolerates NULL. */\n"
+        " ms_matrix *ms_matrix_alloc(size_t rows, size_t cols);\n"
+        "-void ms_matrix_free(ms_matrix *m);\n"
+        "+void ms_matrix_free(ms_matrix *m, int unused);\n"
+        " \n"
+        " /* Element access. Out-of-range indices are undefined behaviour by contract. */\n"
+        " double ms_at(const ms_matrix *m, size_t row, size_t col);\n"
+    )
+
+    result = evaluator.evaluate_patch(patch, task)
+
+    assert result.score is None or not result.score.all_gates_passed()

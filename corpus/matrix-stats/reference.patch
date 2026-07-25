@@ -1,0 +1,208 @@
+--- a/src/matrix.c
++++ b/src/matrix.c
+@@ -7,7 +7,6 @@
+ #include "mstats.h"
+ 
+ #include <stdlib.h>
+-#include <string.h>
+ 
+ ms_matrix *ms_matrix_alloc(size_t rows, size_t cols)
+ {
+@@ -18,14 +17,12 @@
+     m->rows = rows;
+     m->cols = cols;
+ 
+-    /* calloc already returns zeroed memory; the explicit memset below repeats
+-     * that work over the whole buffer. */
++    /* calloc returns zeroed memory, so the buffer does not need clearing again. */
+     m->data = calloc(rows * cols, sizeof(double));
+     if (m->data == NULL) {
+         free(m);
+         return NULL;
+     }
+-    memset(m->data, 0, rows * cols * sizeof(double));
+     return m;
+ }
+ 
+--- a/src/vector.c
++++ b/src/vector.c
+@@ -20,8 +20,11 @@
+     if (n == 0) {
+         return 0.0;
+     }
+-    /* A second traversal: ms_vec_sum has already walked this span. */
+-    return ms_vec_sum(v, n) / (double)n;
++    double total = 0.0;
++    for (size_t i = 0; i < n; i++) {
++        total += v[i];
++    }
++    return total / (double)n;
+ }
+ 
+ double ms_vec_variance(const double *v, size_t n)
+@@ -29,7 +32,15 @@
+     if (n == 0) {
+         return 0.0;
+     }
+-    const double mean = ms_vec_mean(v, n);
++    /* Summed inline in the same order ms_vec_sum uses, so the mean is bitwise
++     * identical to the original and the two-pass form is preserved: the
++     * sum-of-squares shortcut would be one traversal but loses precision. */
++    double total = 0.0;
++    for (size_t i = 0; i < n; i++) {
++        total += v[i];
++    }
++    const double mean = total / (double)n;
++
+     double accumulated = 0.0;
+     for (size_t i = 0; i < n; i++) {
+         const double delta = v[i] - mean;
+--- a/src/stats.c
++++ b/src/stats.c
+@@ -1,45 +1,56 @@
+ /* Per-column statistics and standardisation.
+  *
+- * The expensive shape here is column-major access over a row-major buffer: each
+- * column is gathered into a temporary, the temporary is allocated and freed once
+- * per column, and standardisation walks the matrix once per statistic it needs.
++ * The original gathered each column into a freshly allocated temporary, reached
++ * every element through ms_at (a cross-translation-unit call that recomputes the
++ * row offset), and ran a twelve-step Newton iteration for the square root once
++ * per *element* rather than once per column.
++ *
++ * Every change below preserves the arithmetic and its order, so the results are
++ * bitwise identical to the original — only the number of operations changes.
+  */
+ #include "mstats.h"
+ 
+ #include <stdlib.h>
+ 
++/* One reusable column buffer instead of a malloc/free pair per column. */
++static double *gather_column(const ms_matrix *m, size_t col, double *scratch)
++{
++    const double *base = m->data + col;
++    const size_t stride = m->cols;
++    for (size_t row = 0; row < m->rows; row++) {
++        scratch[row] = base[row * stride];
++    }
++    return scratch;
++}
++
+ void ms_col_means(const ms_matrix *m, double *out)
+ {
+-    for (size_t col = 0; col < m->cols; col++) {
+-        /* A fresh allocation for every column. */
+-        double *column = malloc(m->rows * sizeof(double));
+-        if (column == NULL) {
++    double *scratch = malloc(m->rows * sizeof(double));
++    if (scratch == NULL) {
++        for (size_t col = 0; col < m->cols; col++) {
+             out[col] = 0.0;
+-            continue;
+-        }
+-        for (size_t row = 0; row < m->rows; row++) {
+-            column[row] = ms_at(m, row, col);
+         }
+-        out[col] = ms_vec_mean(column, m->rows);
+-        free(column);
++        return;
+     }
++    for (size_t col = 0; col < m->cols; col++) {
++        out[col] = ms_vec_mean(gather_column(m, col, scratch), m->rows);
++    }
++    free(scratch);
+ }
+ 
+ void ms_col_variances(const ms_matrix *m, double *out)
+ {
+-    for (size_t col = 0; col < m->cols; col++) {
+-        double *column = malloc(m->rows * sizeof(double));
+-        if (column == NULL) {
++    double *scratch = malloc(m->rows * sizeof(double));
++    if (scratch == NULL) {
++        for (size_t col = 0; col < m->cols; col++) {
+             out[col] = 0.0;
+-            continue;
+-        }
+-        for (size_t row = 0; row < m->rows; row++) {
+-            column[row] = ms_at(m, row, col);
+         }
+-        /* ms_vec_variance internally recomputes the mean with another pass. */
+-        out[col] = ms_vec_variance(column, m->rows);
+-        free(column);
++        return;
++    }
++    for (size_t col = 0; col < m->cols; col++) {
++        out[col] = ms_vec_variance(gather_column(m, col, scratch), m->rows);
+     }
++    free(scratch);
+ }
+ 
+ void ms_standardize(ms_matrix *m)
+@@ -52,29 +63,32 @@
+         return;
+     }
+ 
+-    /* Two independent gather passes over the whole matrix. */
+     ms_col_means(m, means);
+     ms_col_variances(m, variances);
+ 
++    const size_t stride = m->cols;
+     for (size_t col = 0; col < m->cols; col++) {
+-        double scale = 0.0;
+-        if (variances[col] > 0.0) {
+-            /* Recomputed inside the row loop below in the original shape. */
+-            scale = variances[col];
++        double *cell = m->data + col;
++
++        if (variances[col] <= 0.0) {
++            for (size_t row = 0; row < m->rows; row++) {
++                cell[row * stride] = 0.0;
++            }
++            continue;
++        }
++
++        /* The Newton iteration depends only on the column variance, so it is
++         * hoisted out of the row loop. Same start value, same twelve steps,
++         * therefore the same bits — it simply runs once instead of per element. */
++        const double scale = variances[col];
++        double guess = scale;
++        for (int step = 0; step < 12; step++) {
++            guess = 0.5 * (guess + scale / guess);
+         }
++
++        const double mean = means[col];
+         for (size_t row = 0; row < m->rows; row++) {
+-            if (scale <= 0.0) {
+-                ms_set(m, row, col, 0.0);
+-                continue;
+-            }
+-            double centred = ms_at(m, row, col) - means[col];
+-            /* An integer-free sqrt by Newton iteration, recomputed per element
+-             * rather than once per column. */
+-            double guess = scale;
+-            for (int step = 0; step < 12; step++) {
+-                guess = 0.5 * (guess + scale / guess);
+-            }
+-            ms_set(m, row, col, centred / guess);
++            cell[row * stride] = (cell[row * stride] - mean) / guess;
+         }
+     }
+ 
+@@ -84,11 +98,14 @@
+ 
+ double ms_digest(const ms_matrix *m)
+ {
++    /* Walked in the same row-major order as before, so the summation order and
++     * therefore the result are unchanged; the row offset is now carried rather
++     * than recomputed through a call per element. */
+     double accumulated = 0.0;
++    const double *cell = m->data;
+     for (size_t row = 0; row < m->rows; row++) {
+         for (size_t col = 0; col < m->cols; col++) {
+-            /* ms_at recomputes row * cols on every call. */
+-            accumulated += ms_at(m, row, col) * (double)((row * 31u + col * 17u) % 97u);
++            accumulated += *cell++ * (double)((row * 31u + col * 17u) % 97u);
+         }
+     }
+     return accumulated;
