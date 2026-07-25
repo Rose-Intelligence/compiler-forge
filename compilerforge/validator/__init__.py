@@ -1,5 +1,6 @@
 """The validator neuron and its round machinery."""
 
+from compilerforge.validator.cli import app as cli_app
 from compilerforge.validator.forward import forward
 from compilerforge.validator.neuron import Validator
 from compilerforge.validator.round import (
@@ -15,6 +16,7 @@ from compilerforge.validator.round import (
 
 __all__ = [
     "ProducedPatch",
+    "cli_app",
     "ProducerAssignment",
     "ReproductionChallenge",
     "RoundResult",

@@ -101,17 +101,38 @@ pip install -e .
 ## Preflight
 
 ```bash
-cf-eval preflight
+cf-validator preflight --netuid <netuid>
 ```
 
-Reports what this machine can measure and what it cannot. Every failure is a
-reason to fix the host rather than start anyway.
+Reports everything that would stop this validator in one pass, before a wallet
+is loaded or a chain connection is open — host toolchain, sandbox runtime,
+corpus, and whether the subnet itself is configured to accept your weights.
 
-Verify the corpus before a first run:
+It separates two statuses deliberately:
+
+| Status | Meaning |
+|--------|---------|
+| `BLOCKING` | The validator will refuse to start, or would produce scores nobody else can reproduce. Exit code 1. |
+| `degraded` | It will participate fully in consensus and contribute less evidence than a fully equipped host — an uncalibrated wall-clock host, or missing `/usr/bin/time`. Exit code 0. |
+
+Those must not be confused. Treating a degraded host as blocking keeps honest
+validators off the subnet; treating a blocking host as degraded puts
+incomparable weights on chain.
+
+Skip the chain half while working offline:
 
 ```bash
-cf-corpus validate ./corpus
+cf-validator preflight --netuid <netuid> --no-chain
 ```
+
+Compare live subnet hyperparameters against the plan:
+
+```bash
+cf-validator hyperparameters --netuid <netuid>
+```
+
+`cf-eval preflight` remains the miner-side equivalent, and
+`cf-corpus validate ./corpus` checks the corpus on its own.
 
 A package with no measured reference speedup cannot be scored — capture has
 nothing to normalise against — and a corpus with no held-out family cannot

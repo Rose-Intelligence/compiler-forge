@@ -47,6 +47,9 @@ cf-corpus manifest <dir> --snapshot <id>
 cf-corpus derive-round <dir> --block-hash 0x... --corpus-snapshot <id>
 cf-corpus seal <package> --hours 36
 
+cf-validator preflight --netuid <n>       # can this host validate?
+cf-validator hyperparameters --netuid <n> # is the subnet configured right?
+
 cf-miner check  --image <repo>
 cf-miner submit --netuid <n> --image <repo>
 cf-miner status --netuid <n>

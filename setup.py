@@ -53,6 +53,7 @@ setup(
             "cf-eval=compilerforge.sdk.cli:app",
             "cf-corpus=compilerforge.corpus.cli:app",
             "cf-miner=compilerforge.miner.cli:app",
+            "cf-validator=compilerforge.validator.cli:app",
         ],
     },
     license="MIT",

@@ -26,10 +26,10 @@ dev = [
 ]
 
 [project.scripts]
-cf-validator = "compilerforge.validator.main:app"
 cf-miner = "compilerforge.miner.cli:app"
 cf-eval = "compilerforge.sdk.cli:app"
 cf-corpus = "compilerforge.corpus.cli:app"
+cf-validator = "compilerforge.validator.cli:app"
 
 [build-system]
 requires = ["hatchling"]
