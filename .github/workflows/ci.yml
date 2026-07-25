@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # Fast feedback: lint and the mechanism tests. No toolchain, ~1 second of
+  # actual test time, so this is what tells a contributor within a minute
+  # whether they broke the incentive mechanism.
+  lint-and-unit:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check compilerforge tests neurons
+
+      - name: Every module imports
+        # Catches the failure mode a v10 -> v11 SDK migration produced: modules
+        # that import cleanly because the removed symbols are only touched at
+        # runtime, so the break does not surface until a neuron starts.
+        run: |
+          python - <<'PY'
+          import importlib, pkgutil, sys
+          import compilerforge
+          failed = []
+          for module in pkgutil.walk_packages(compilerforge.__path__, "compilerforge."):
+              try:
+                  importlib.import_module(module.name)
+              except Exception as exc:
+                  failed.append(f"{module.name}: {type(exc).__name__}: {exc}")
+          for line in failed:
+              print("FAIL", line)
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Unit tests
+        run: pytest -m "not slow" -q
+
+  # The tests that need real clang, real sanitizers and real Callgrind. Slower,
+  # and the only place the two-tier measurement claim is actually checked.
+  integration:
+    name: Integration (real toolchain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: lint-and-unit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake valgrind time
+
+      - name: Record toolchain versions
+        # The toolchain digest is part of the score comparability tuple, so it
+        # belongs in the log when a measurement result is being read.
+        run: |
+          clang --version | head -1
+          cmake --version | head -1
+          valgrind --version
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Corpus is valid
+        # A package with no measured reference cannot be scored, and a corpus
+        # with no held-out family cannot produce a round at all.
+        run: python -m compilerforge.corpus.cli validate ./corpus
+
+      - name: Integration tests
+        # Includes the timelock tests, which reach the public drand beacon.
+        run: pytest -m slow -q
+
+      - name: Reference patch still captures its own reference
+        # If this drifts from 1.000 the stored reference speedups are stale and
+        # every score in the network moved with them.
+        run: |
+          python -m compilerforge.sdk.cli patch corpus/string-split \
+            --patch corpus/string-split/reference.patch \
+            --seed 0xc1c1
+
+  # Deterministic measurement is the property consensus rests on. Running the
+  # same measurement on a second, independent runner is the cheapest possible
+  # check that it still holds across machines.
+  cross-host-determinism:
+    name: Cross-host Tier A agreement
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: lint-and-unit
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake valgrind time
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Measure the reference patch and print the instruction count
+        # Compare the printed counts across matrix legs by eye, or wire this to
+        # an artifact upload once there is somewhere to diff them.
+        run: |
+          python -m compilerforge.sdk.cli patch corpus/string-split \
+            --patch corpus/string-split/reference.patch \
+            --seed 0xc1c1 --json | tee tier-a-${{ matrix.os }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tier-a-${{ matrix.os }}
+          path: tier-a-${{ matrix.os }}.json
+          if-no-files-found: warn
