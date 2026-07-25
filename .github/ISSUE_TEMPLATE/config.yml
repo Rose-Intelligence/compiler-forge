@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/Rose-Intelligence/compiler-forge/security/advisories/new
+    about: >-
+      Sandbox escapes, ways to read hidden task material, and ways to forge a
+      measurement must not be filed as public issues. Report them privately.
+  - name: Task package proposal
+    url: https://github.com/Rose-Intelligence/compiler-forge/blob/main/docs/architecture.md#adding-a-task-package
+    about: >-
+      New corpus packages are the single most valuable contribution. Read the
+      requirements first — a package needs a real inefficiency, a measured
+      reference, and hidden inputs that catch what the public tests miss.
