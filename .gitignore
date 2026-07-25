@@ -32,6 +32,13 @@ corpus/**/repo/build/
 # Local agent/editor state
 .claude/
 
+# Internal specification and commercial documents. The public-facing design
+# lives in docs/; the source specification carries strategy, economics and
+# competitor analysis that does not belong in a code repository.
+*.docx
+*.pdf
+*.xlsx
+
 # Never commit these
 *.pem
 *.key

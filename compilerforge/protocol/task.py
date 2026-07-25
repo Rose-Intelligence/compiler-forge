@@ -78,6 +78,14 @@ class BuildContract(_Frozen):
     forbidden_flags: tuple[str, ...] = ()
     # Second build used by the UB cross-check.
     second_opt_level: str = SPEC.safety.second_opt_level
+    #: The pinned compilers, declared so an agent does not have to guess.
+    #:
+    #: Without these the build system picks whatever it finds first — `cc`, which
+    #: is gcc on a stock Ubuntu host — while the toolchain digest is computed from
+    #: clang. An agent that optimizes against one compiler and is measured under
+    #: another is being scored on a different program than it tuned.
+    c_compiler: str = "clang"
+    cxx_compiler: str = "clang++"
 
 
 class TestContract(_Frozen):
