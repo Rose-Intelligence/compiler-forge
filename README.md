@@ -10,7 +10,8 @@ cheaper — without changing what it does.
 [Miner guide](docs/miner.md) ·
 [Validator guide](docs/validator.md) ·
 [Architecture](docs/architecture.md) ·
-[Incentive mechanism](docs/incentive_mechanism.md)
+[Incentive mechanism](docs/incentive_mechanism.md) ·
+[Dashboard](https://github.com/Rose-Intelligence/cf-dashboard)
 
 </div>
 
@@ -212,8 +213,19 @@ corpus/
   token-count/              held-out package used to measure generalisation
 
 docs/                       guides and runbooks
-tests/                      108 unit tests, 8 end-to-end integration tests
+tests/                      183 fast tests, 15 marked slow
 ```
+
+The performance dashboard is a **separate project** —
+[Rose-Intelligence/cf-dashboard](https://github.com/Rose-Intelligence/cf-dashboard).
+It renders published round bundles: the reference ladder, the champion race, crown
+status, the miner leaderboard and validator agreement.
+
+It lives apart on purpose. It holds no keys, has no privileged read, and cannot
+influence a score — a claim worth being able to check by reading it, which is only
+easy while it stays a dependency-free static page rather than a directory inside a
+repository that signs weights. Clone the two side by side and its fixture generator
+finds this checkout with no arguments.
 
 ---
 
