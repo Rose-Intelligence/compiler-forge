@@ -20,8 +20,6 @@ so the hash is computed over sorted (relpath, sha256) pairs and nothing else.
 
 from __future__ import annotations
 
-from compilerforge.corpus.globs import matches_any
-
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -31,6 +29,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from compilerforge.corpus.globs import matches_any
 from compilerforge.protocol.task import (
     BenchmarkContract,
     BuildContract,

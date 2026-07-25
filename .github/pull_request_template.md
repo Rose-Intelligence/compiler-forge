@@ -52,7 +52,7 @@ disagree, and disagreement is expensive to diagnose after the fact.
 - [ ] A validator-side fault cannot score against a miner.
 - [ ] A task-side fault voids the task rather than zeroing every miner.
 
-<!-- See docs/failure_handling.md for why these three are called out
+<!-- See docs/architecture.md#failure-handling for why these three are called out
      specifically — each corresponds to a bug that actually shipped. -->
 
 ## Checks

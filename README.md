@@ -10,7 +10,6 @@ cheaper — without changing what it does.
 [Miner guide](docs/miner.md) ·
 [Validator guide](docs/validator.md) ·
 [Architecture](docs/architecture.md) ·
-[Incentive mechanism](docs/incentive_mechanism.md) ·
 [Dashboard](https://github.com/Rose-Intelligence/cf-dashboard)
 
 </div>
@@ -127,7 +126,7 @@ the miner and never the network — the correct direction for an incentive syste
 to be wrong in.
 
 Full weighting, dethronement rules and the emission policy: **[incentive
-mechanism](docs/incentive_mechanism.md)**.
+mechanism](docs/architecture.md#incentive-mechanism)**.
 
 ---
 
@@ -229,6 +228,10 @@ and stops before scoring. Scoring needs a measured expert patch to normalise
 against, and your repository has none — but correctness and speed never depended
 on that, so this reports both.
 
+The same split exists in the dashboard, as two pages: **Benchmarks** runs the
+curated packages and produces a capture value, **Your project** takes an upload
+and reports a verified measurement without one.
+
 Two things decide whether the number is worth much:
 
 **Instrument the benchmark.** Bracket the hot region with
@@ -323,7 +326,7 @@ alongside it, and never claims more.
 A task that cannot be measured is voided rather than scored as zero for everyone;
 an evaluation this validator could not perform emits no score rather than
 punishing the miner for it; a rejected extrinsic raises rather than being reported
-as success. The full contract is in [failure_handling.md](docs/failure_handling.md),
+as success. The full contract is in [architecture.md](docs/architecture.md#failure-handling),
 and `tests/test_no_silent_failures.py` pins it.
 
 ---

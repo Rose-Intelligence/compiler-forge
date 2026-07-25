@@ -14,11 +14,11 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
+from compilerforge.corpus.globs import matches_any
 from compilerforge.corpus.package import inventory_hash
 from compilerforge.protocol.score import GateName, GateResult
-from compilerforge.corpus.globs import matches_any
 from compilerforge.protocol.task import Task
 from compilerforge.spec import SPEC
 
