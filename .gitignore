@@ -29,6 +29,12 @@ perf.data*
 corpus/**/build/
 corpus/**/repo/build/
 
+# The dashboard is a separate project (Rose-Intelligence/cf-dashboard). It is
+# convenient to check it out here while working on both, and it must never be
+# committed into this repository — an accidental `git add` would record it as a
+# gitlink, which is worse than a stray directory.
+cf-dashboard/
+
 # Local agent/editor state
 .claude/
 
