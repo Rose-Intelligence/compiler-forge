@@ -32,6 +32,8 @@ itself. That is the entire reason independent validation is worth paying for.
 - [Consensus upgrades](#consensus-upgrades)
 - [Monitoring](#monitoring)
 - [Troubleshooting](#troubleshooting)
+- [Running on testnet](#running-on-testnet)
+- [Running on mainnet](#running-on-mainnet)
 
 ---
 

@@ -3,9 +3,9 @@
 How the system is put together, why each piece is where it is, how a measurement
 becomes a weight, and what happens when something goes wrong.
 
----
-
-How the system is put together, and why each piece is where it is.
+- [How it is put together](#two-planes)
+- [Incentive mechanism](#incentive-mechanism) — how a measurement becomes a weight
+- [Failure handling](#failure-handling) — what happens when it cannot
 
 ---
 
