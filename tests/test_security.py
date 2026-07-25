@@ -206,13 +206,25 @@ def test_editing_the_build_definition_is_measurement_manipulation():
     """Changing the flags you are measured under is not an optimization."""
     result = check_patch_hygiene(_diff("CMakeLists.txt"), _task())
     assert not result.passed
-    assert "build definition" in result.detail
+    assert "outside the patchable area" in result.detail
 
 
 def test_editing_a_test_file_is_caught_by_hygiene():
     result = check_patch_hygiene(_diff("tests/test_main.c"), _task())
     assert not result.passed
-    assert "test file" in result.detail
+    assert "outside the patchable area" in result.detail
+
+
+def test_editing_the_benchmark_is_caught_by_hygiene():
+    """The gate the previous denylist missed entirely.
+
+    A patch moving the instrumentation markers left every correctness gate
+    passing — the program's output was identical — while the measured region did
+    almost nothing. See tests/test_bypasses.py for the full attack.
+    """
+    result = check_patch_hygiene(_diff("bench/bench.c"), _task())
+    assert not result.passed
+    assert "outside the patchable area" in result.detail
 
 
 def test_an_ordinary_source_patch_passes_hygiene():
