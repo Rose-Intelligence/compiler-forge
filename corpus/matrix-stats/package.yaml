@@ -1,0 +1,81 @@
+# matrix-stats — descriptive statistics over dense matrices, spread across three
+# translation units.
+#
+# This package exists to exercise a path the single-file packages do not: the
+# inefficiency is distributed, so a candidate that only rewrites one source file
+# leaves most of the cost on the table. Element access is in matrix.c, the
+# redundant traversals are in vector.c, and the column gather and the per-element
+# Newton iteration are in stats.c.
+#
+# Nothing here is a bug. Every function is correct and passes its tests; the
+# library simply does more work than the arithmetic requires.
+
+package_id: matrix-stats
+family: numerical
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_mstats
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+differential_command: ./build/differential
+
+# Floating point: the reductions may legitimately be reassociated, so bitwise
+# equality would reject correct optimizations. The tolerance is tight enough
+# that a changed algorithm still fails.
+equivalence_discipline: float_tolerance
+float_tolerance_ulp: 64
+
+objective: balanced
+
+measured_region: cf_bench_start/cf_bench_stop
+
+side_effects:
+  - stdout
+  - exit_code
+
+workload_profiles:
+  - name: default
+    args: ["--rows", "400", "--cols", "40", "--repeats", "3"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 2.391241
+  - name: tall
+    args: ["--rows", "2000", "--cols", "8", "--repeats", "2"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 2.312575
+  - name: wide
+    args: ["--rows", "80", "--cols", "160", "--repeats", "3"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 2.362508
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

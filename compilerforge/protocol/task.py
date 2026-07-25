@@ -137,13 +137,40 @@ class EquivalenceContract(_Frozen):
         return v
 
 
+#: The bracketed region: Callgrind starts with --instr-atstart=no and the
+#: benchmark turns instrumentation on around the code that matters. Process
+#: startup and input generation are excluded, so a small kernel's real cost is
+#: not swamped by setup.
+MARKED_REGION = "cf_bench_start/cf_bench_stop"
+
+#: Everything the process does, startup included. Correct but blunter: it is the
+#: only option for a benchmark that cannot be edited to carry the markers, and it
+#: dilutes an improvement by whatever fixed cost surrounds it.
+WHOLE_PROCESS = "whole_process"
+
+
 class BenchmarkContract(_Frozen):
     command: str
     objective: Objective = Objective.BALANCED
-    #: Callgrind is started with --instr-atstart=no; these markers bracket the
-    #: region that is actually measured, exactly as CodSpeed does in production.
-    measured_region: str = "cf_bench_start/cf_bench_stop"
+    #: Which of the two measurement modes above applies. The package declares it;
+    #: the runner is configured from it and never guesses.
+    measured_region: str = MARKED_REGION
     max_wall_seconds: int = SPEC.budget.default_wall_seconds
+
+    @field_validator("measured_region")
+    @classmethod
+    def _known_region(cls, v: str) -> str:
+        if v not in (MARKED_REGION, WHOLE_PROCESS):
+            raise ValueError(
+                f"measured_region must be {MARKED_REGION!r} or {WHOLE_PROCESS!r}, "
+                f"got {v!r}"
+            )
+        return v
+
+    @property
+    def instrument_at_start(self) -> bool:
+        """True when there are no markers, so the whole process is counted."""
+        return self.measured_region == WHOLE_PROCESS
 
 
 class ResourceContract(_Frozen):

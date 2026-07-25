@@ -120,7 +120,12 @@ class BaselineBuilder:
             SPEC.stability.min_baseline_repeats, SPEC.measurement.tier_a_repeats
         )
         try:
-            counters = self.tier_a.measure(task.benchmark.command, cwd=workspace.root, repeats=n)
+            counters = self.tier_a.measure(
+                task.benchmark.command,
+                cwd=workspace.root,
+                repeats=n,
+                instrument_at_start=task.benchmark.instrument_at_start,
+            )
         except MeasurementError as exc:
             raise BaselineUnstable(f"baseline cannot be measured deterministically: {exc}") from exc
 

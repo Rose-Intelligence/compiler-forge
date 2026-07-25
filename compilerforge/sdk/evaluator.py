@@ -63,11 +63,15 @@ class LocalResult:
             return f"FAILED at {failed}: {detail}"
         if self.score.honest_null:
             return "PASSED every gate, no improvement — an honest null result"
-        capture = self.score.reference.capture if self.score.reference else 0.0
         speedup = self.score.tier_a.deterministic_speedup if self.score.tier_a else 1.0
+        if self.score.reference is None:
+            # Verification only. Printing "capture 0.000" here would report a
+            # number nobody computed, and a reader cannot tell that apart from a
+            # candidate that genuinely captured nothing.
+            return f"VERIFIED — {speedup:.4f}x deterministic, not scored"
         return (
-            f"PASSED — {speedup:.4f}x deterministic, capture {capture:.3f}, "
-            f"score {self.score.score:.4f}"
+            f"PASSED — {speedup:.4f}x deterministic, "
+            f"capture {self.score.reference.capture:.3f}, score {self.score.score:.4f}"
         )
 
 
@@ -147,8 +151,14 @@ class LocalEvaluator:
         *,
         cases: list[DifferentialCase] | None = None,
         artifact_digest: str = "sha256:" + "0" * 64,
+        score: bool = True,
     ) -> LocalResult:
-        """Run the full gate sequence against an existing patch."""
+        """Run the full gate sequence against an existing patch.
+
+        ``score=False`` runs every gate and both measurement tiers but skips
+        capture, which needs a reference speedup the package may not have. See
+        :meth:`verify_patch`.
+        """
         started = time.monotonic()
 
         if cases is None:
@@ -162,7 +172,7 @@ class LocalEvaluator:
 
         evaluator = Evaluator(ctx=self.context())
         try:
-            score = evaluator.evaluate(candidate, selected, cases=cases)
+            artifact = evaluator.evaluate(candidate, selected, cases=cases, score=score)
         except (TaskVoided, BaselineUnstable) as exc:
             return LocalResult(
                 run=None,
@@ -171,7 +181,29 @@ class LocalEvaluator:
                 seconds=time.monotonic() - started,
             )
 
-        return LocalResult(run=None, score=score, seconds=time.monotonic() - started)
+        return LocalResult(run=None, score=artifact, seconds=time.monotonic() - started)
+
+    def verify_patch(
+        self,
+        patch: str,
+        selected: SelectedTask,
+        *,
+        cases: list[DifferentialCase] | None = None,
+    ) -> LocalResult:
+        """Is this patch correct, and is it faster? Nothing about consensus.
+
+        A package needs a measured expert reference before capture means
+        anything, and authoring one is the expensive part of onboarding a
+        repository. Correctness and speed do not depend on it: the gate sequence
+        and both tiers run identically either way.
+
+        So this answers the question an owner of the code actually has, on a
+        package that only has to declare how to build, test, benchmark and
+        differentially compare itself.
+
+        The result carries no capture and no score, and must never be weighted.
+        """
+        return self.evaluate_patch(patch, selected, cases=cases, score=False)
 
     def evaluate_agent(
         self, entrypoint: list[str], selected: SelectedTask

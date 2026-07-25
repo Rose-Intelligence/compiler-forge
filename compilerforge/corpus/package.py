@@ -20,6 +20,8 @@ so the hash is computed over sorted (relpath, sha256) pairs and nothing else.
 
 from __future__ import annotations
 
+from compilerforge.corpus.globs import matches_any
+
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -97,7 +99,7 @@ def immutable_tree_hash(root: Path, patchable: tuple[str, ...]) -> str:
     entries = []
     for path in _iter_files(root):
         relative = path.relative_to(root)
-        if any(relative.match(pattern) for pattern in patchable):
+        if matches_any(relative.as_posix(), patchable):
             continue
         entries.append(
             (str(relative), hashlib.sha256(path.read_bytes()).hexdigest())

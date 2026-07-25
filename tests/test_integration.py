@@ -52,6 +52,11 @@ def token_count() -> LoadedPackage:
     return LoadedPackage.load(CORPUS / "token-count")
 
 
+@pytest.fixture(scope="module")
+def matrix_stats() -> LoadedPackage:
+    return LoadedPackage.load(CORPUS / "matrix-stats")
+
+
 @requires_toolchain
 def test_the_reference_patch_captures_exactly_its_own_reference(evaluator, string_split):
     """The definition of the capture scale, checked against itself.
@@ -358,3 +363,117 @@ def test_a_build_with_the_wrong_compiler_is_rejected(evaluator, string_split, tm
     # The cache now records gcc. Checking it against the clang pin must raise.
     with pytest.raises(ToolchainMismatch, match="toolchain digest"):
         Builder()._assert_pinned_compiler_was_used(workspace, "clang")
+
+
+@requires_toolchain
+def test_a_patch_spanning_several_source_files_is_evaluated_whole(
+    evaluator, matrix_stats
+):
+    """A candidate may restructure across translation units.
+
+    Both single-file packages happen to have one source file each, so for a long
+    time nothing exercised the multi-file path even though the patch scope is a
+    glob and the changed-file cap is 25. This package spreads the inefficiency
+    across three translation units deliberately: element access in matrix.c, the
+    redundant traversals in vector.c, and the column gather and per-element
+    Newton iteration in stats.c.
+
+    A candidate that rewrites only one of them leaves most of the cost behind, so
+    this asserts the whole patch is applied and measured as one unit.
+    """
+    task = evaluator.build_task(matrix_stats, seed="0xmulti")
+    patch = (CORPUS / "matrix-stats" / "reference.patch").read_text()
+
+    result = evaluator.evaluate_patch(patch, task)
+
+    assert result.score is not None, result.voided_reason
+    assert result.score.all_gates_passed(), result.summary()
+
+    hygiene = next(
+        g for g in result.score.gates if str(g.name) == "patch_hygiene"
+    )
+    assert hygiene.detail.startswith("3 files"), hygiene.detail
+
+    touched = {
+        line[6:].strip()
+        for line in patch.splitlines()
+        if line.startswith("--- a/")
+    }
+    assert touched == {"src/matrix.c", "src/vector.c", "src/stats.c"}, touched
+
+    # The improvement has to come from the combination. Each file alone is a
+    # fraction of it, so a materially lower speedup would mean only part of the
+    # patch took effect.
+    assert result.score.tier_a is not None
+    assert result.score.tier_a.deterministic_speedup > 2.0
+
+
+@requires_toolchain
+def test_a_patch_that_edits_a_public_header_is_rejected(evaluator, matrix_stats):
+    """include/** is patchable, but the ABI gate still owns the public surface.
+
+    A candidate may add an internal header; it may not change a declaration
+    callers outside the package compile against.
+    """
+    task = evaluator.build_task(matrix_stats, seed="0xheader")
+    patch = (
+        "--- a/include/mstats.h\n"
+        "+++ b/include/mstats.h\n"
+        "@@ -20,7 +20,7 @@\n"
+        " /* Allocation. Returns NULL on failure; ms_matrix_free tolerates NULL. */\n"
+        " ms_matrix *ms_matrix_alloc(size_t rows, size_t cols);\n"
+        "-void ms_matrix_free(ms_matrix *m);\n"
+        "+void ms_matrix_free(ms_matrix *m, int unused);\n"
+        " \n"
+        " /* Element access. Out-of-range indices are undefined behaviour by contract. */\n"
+        " double ms_at(const ms_matrix *m, size_t row, size_t col);\n"
+    )
+
+    result = evaluator.evaluate_patch(patch, task)
+
+    assert result.score is None or not result.score.all_gates_passed()
+
+
+@requires_toolchain
+def test_verification_works_without_a_reference_patch(evaluator, matrix_stats, tmp_path):
+    """The customer-facing half of the pipeline does not need an expert patch.
+
+    Capture is a fraction of what a human expert achieved, so scoring needs a
+    measured reference. Correctness and speed do not — and authoring a reference
+    is the expensive part of onboarding a repository. Someone optimizing their own
+    code should be able to ask "is this safe, and how much did it save" without
+    first producing the answer they are trying to find.
+    """
+    import shutil
+
+    import yaml
+
+    # A package as a real user would have it: no reference, no s_ref.
+    own = tmp_path / "own-repo"
+    shutil.copytree(matrix_stats.root, own)
+    manifest = yaml.safe_load((own / "package.yaml").read_text())
+    manifest.pop("reference", None)
+    for profile in manifest["workload_profiles"]:
+        profile.pop("s_ref_deterministic", None)
+    (own / "package.yaml").write_text(yaml.safe_dump(manifest))
+
+    package = LoadedPackage.load(own)
+    task = evaluator.build_task(package, seed="0xverify")
+    patch = (CORPUS / "matrix-stats" / "reference.patch").read_text()
+
+    # Scoring must refuse: there is nothing to normalise capture against.
+    scored = evaluator.evaluate_patch(patch, task)
+    assert scored.score is None
+    assert "reference speedup" in (scored.voided_reason or "")
+
+    # Verification must succeed, run every gate, and measure.
+    verified = evaluator.verify_patch(patch, task)
+    assert verified.score is not None, verified.voided_reason
+    assert verified.score.all_gates_passed(), verified.summary()
+    assert verified.score.tier_a is not None
+    assert verified.score.tier_a.deterministic_speedup > 2.0
+
+    # And it must not present itself as a consensus result.
+    assert verified.score.reference is None
+    assert verified.score.score == 0.0
+    assert "not scored" in verified.summary()

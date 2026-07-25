@@ -130,12 +130,21 @@ class Evaluator:
         *,
         cases: list[DifferentialCase],
         baseline: Baseline | None = None,
+        score: bool = True,
     ) -> ScoreArtifact:
         """Evaluate one candidate and return a signed-ready score artifact.
 
         Raises ``TaskVoided`` when the failure belongs to the task rather than to
         the candidate — an unstable baseline or persistent tier divergence — so the
         caller can drop the task for the whole round instead of zeroing one miner.
+
+        With ``score=False`` the gate sequence and both measurement tiers run
+        exactly as they do on a validator, but capture and the component score are
+        not computed. That combination is not a consensus result and must never be
+        weighted — it exists because a package can be verified and measured
+        without an expert reference patch to normalise against, and someone who
+        wants to know whether their own patch is correct and faster should not
+        have to author one first.
         """
         self._gates = []
         task = selected.task
@@ -268,6 +277,11 @@ class Evaluator:
             artifact.tier_b = tier_b
 
             # -- Scoring -----------------------------------------------------
+            if not score:
+                # Verification only: everything above is what a validator does,
+                # and everything below turns it into a number consensus can use.
+                return self._finish(artifact)
+
             s_ref = package.reference_speedup(selected.profile)
             if s_ref is None:
                 raise TaskVoided(
@@ -351,11 +365,19 @@ class Evaluator:
         base_counters = (
             list(baseline.tier_a_counters)
             if baseline is not None
-            else self.ctx.tier_a.measure(task.benchmark.command, cwd=base_ws.root)
+            else self.ctx.tier_a.measure(
+                task.benchmark.command,
+                cwd=base_ws.root,
+                instrument_at_start=task.benchmark.instrument_at_start,
+            )
         )
 
         try:
-            cand_counters = self.ctx.tier_a.measure(task.benchmark.command, cwd=cand_ws.root)
+            cand_counters = self.ctx.tier_a.measure(
+            task.benchmark.command,
+            cwd=cand_ws.root,
+            instrument_at_start=task.benchmark.instrument_at_start,
+        )
         except MeasurementError as exc:
             raise CandidateUnmeasurable(
                 f"the patched build could not be measured: {exc}"

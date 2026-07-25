@@ -159,6 +159,22 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+This step is what puts the commands on your `PATH`. Without it there is no
+`cf-eval`, and every example below fails with `command not found`:
+
+| Command | For |
+|---|---|
+| `cf-eval` | optimizing and verifying — the one you want first |
+| `cf-miner` | packaging an agent as an artifact |
+| `cf-validator` | running a validator |
+| `cf-corpus` | building and measuring corpus packages |
+
+Check it took:
+
+```bash
+cf-eval --help
+```
+
 ### Check your machine
 
 ```bash
@@ -185,6 +201,48 @@ cf-eval patch corpus/string-split --patch corpus/string-split/reference.patch
 cf-eval agent corpus/string-split \
     --entrypoint "python3 compilerforge/miner/reference_agent/agent.py"
 ```
+
+---
+
+## Using it on your own code
+
+You do not need to run a miner, a validator, or anything on chain to use the
+measurement pipeline. Two commands take a source tree to a verified,
+reproducible speedup.
+
+```bash
+# 1. Turn your project into something measurable.
+cf-eval onboard ./my-project --out ./pkg --bench-args "--lines 800"
+
+# 2. Check a change is correct and find out what it saved.
+cf-eval verify ./pkg --patch my-change.diff
+```
+
+`onboard` reads the build system, the test target and the benchmark out of your
+own build definition, works out which directories a candidate may rewrite, and
+tells you what it could not determine rather than guessing. A project with no
+build system at all still works if a source file defines `main()` — a minimal
+build is generated for it.
+
+`verify` runs the same gate sequence and the same measurement a validator runs,
+and stops before scoring. Scoring needs a measured expert patch to normalise
+against, and your repository has none — but correctness and speed never depended
+on that, so this reports both.
+
+Two things decide whether the number is worth much:
+
+**Instrument the benchmark.** Bracket the hot region with
+`CALLGRIND_START_INSTRUMENTATION` / `CALLGRIND_STOP_INSTRUMENTATION` from
+`<valgrind/callgrind.h>`. Without them the whole process is measured, startup
+included — and for a small program that is nearly all of it. A real submission
+measured 1,975,095 instructions of which 1,961,536 were iostream initialisation:
+the program's own work was 0.69% of the count, and no optimization of it could
+have shown up.
+
+**Keep the benchmark out of the patch scope.** If the code being measured and
+the code being changed are the same file, a candidate that computes less and
+prints the same bytes is indistinguishable from one that computes the same thing
+faster. `onboard` warns when it detects this.
 
 ---
 

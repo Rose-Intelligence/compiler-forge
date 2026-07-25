@@ -181,14 +181,24 @@ class TierARunner:
         cwd: Path,
         env: dict[str, str] | None = None,
         repeats: int | None = None,
+        instrument_at_start: bool | None = None,
     ) -> list[CallgrindCounters]:
         """Run the benchmark under Callgrind ``repeats`` times.
+
+        ``instrument_at_start`` comes from the task's benchmark contract: a
+        package whose benchmark carries the markers is measured between them, and
+        one that cannot carry them is measured whole. Passing it per call rather
+        than per runner keeps a single runner correct across a round in which
+        different packages declare different modes.
 
         On a simulated CPU these results should be identical. Repeating is a
         cheap detector for a benchmark that is secretly non-deterministic — one
         that reads the clock, the PID, or /dev/urandom — which would silently
         destroy cross-validator agreement if it reached the weight vector.
         """
+        at_start = (
+            self.instrument_at_start if instrument_at_start is None else instrument_at_start
+        )
         if not self.available():
             raise MeasurementError(
                 "valgrind is not installed; Tier A is the consensus-bearing tier and "
@@ -209,7 +219,7 @@ class TierARunner:
                     self.valgrind_path,
                     "--tool=callgrind",
                     f"--callgrind-out-file={out_file}",
-                    f"--instr-atstart={'yes' if self.instrument_at_start else 'no'}",
+                    f"--instr-atstart={'yes' if at_start else 'no'}",
                     f"--cache-sim={'yes' if self.cache_simulation else 'no'}",
                     "--branch-sim=no",
                     # Children are part of the program's cost; a benchmark that

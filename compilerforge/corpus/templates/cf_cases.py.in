@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Differential cases for a scaffolded project.
+
+The project declared no differential harness, so equivalence is judged by
+replaying the benchmark across the argument sets below and comparing what it
+printed. That is weaker than a purpose-built harness: it only sees what the
+benchmark chose to print, and a change invisible in that output is a change this
+cannot catch.
+
+The argument sets are fixed at scaffold time rather than drawn from the round
+seed, because nothing here knows what shape of argument this benchmark accepts.
+A package that wants seed-derived inputs needs a harness that understands its own
+input format.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+ARGUMENT_SETS = __ARGUMENT_SETS__
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed", required=True)
+    parser.add_argument("--count", type=int, default=len(ARGUMENT_SETS))
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args()
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    for index in range(min(args.count, len(ARGUMENT_SETS))):
+        case = {
+            "case_id": f"case-{index:05d}",
+            "argv": ARGUMENT_SETS[index],
+            "stdin_hex": "",
+        }
+        (args.out / f"{case['case_id']}.json").write_text(json.dumps(case))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
