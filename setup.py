@@ -39,7 +39,7 @@ setup(
     description="Verified autonomous software performance engineering on Bittensor",
     long_description=(HERE / "README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
-    url="https://github.com/compilerforge/compilerforge",
+    url="https://github.com/Rose-Intelligence/compiler-forge",
     author="CompilerForge",
     packages=find_packages(exclude=["tests", "tests.*"]),
     include_package_data=True,

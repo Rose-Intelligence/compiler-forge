@@ -42,6 +42,24 @@ Both are pinned by `tests/test_no_silent_failures.py`.
 
 ---
 
+## A miner must not be able to void a task
+
+Voiding removes a task from every miner's score **and** prevents a crown change
+that round. Conflating "this patch cannot be measured" with "this task is broken"
+would therefore hand any miner both a denial of service and a way for an
+incumbent champion to defend itself indefinitely.
+
+So the two are separate exceptions:
+
+| Failure | Raises | Effect |
+|---|---|---|
+| The **baseline** cannot be measured | `TaskVoided` | Task dropped for everyone |
+| The **candidate** cannot be measured | `CandidateUnmeasurable` | Zero for that artifact only |
+
+The candidate's own determinism is checked before the two sides are compared, so
+a non-deterministic patched build is attributed to the patch rather than to the
+task.
+
 ## Chain operations
 
 Every chain read and write goes through `compilerforge/chain/access.py`, so there

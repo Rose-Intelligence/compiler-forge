@@ -35,6 +35,7 @@ from compilerforge.protocol.task import (
     EquivalenceContract,
     EquivalenceDiscipline,
     Objective,
+    PatchScope,
     RepositoryContract,
     ResourceContract,
     Task,
@@ -80,6 +81,27 @@ def inventory_hash(root: Path, patterns: tuple[str, ...]) -> str:
                 entries.append(
                     (str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest())
                 )
+    entries.sort()
+    payload = json.dumps(entries, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
+def immutable_tree_hash(root: Path, patchable: tuple[str, ...]) -> str:
+    """Hash every file a patch is *not* allowed to touch.
+
+    Comparing this before and after a patch applies catches modifications,
+    additions and deletions anywhere outside the patchable area — including
+    tricks a pattern check on the diff itself would miss, such as adding a file
+    that shadows a validator-owned one.
+    """
+    entries = []
+    for path in _iter_files(root):
+        relative = path.relative_to(root)
+        if any(relative.match(pattern) for pattern in patchable):
+            continue
+        entries.append(
+            (str(relative), hashlib.sha256(path.read_bytes()).hexdigest())
+        )
     entries.sort()
     payload = json.dumps(entries, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
@@ -153,6 +175,9 @@ class TaskPackage(BaseModel):
     #: needs a different compiler, but V1 is one pinned LLVM/Clang.
     c_compiler: str = "clang"
     cxx_compiler: str = "clang++"
+    #: Paths a patch may touch. Everything else — tests, benchmark drivers, the
+    #: build definition, fuzz targets — belongs to the validator.
+    patchable_paths: tuple[str, ...] = ("src/**", "include/**")
     test_command: str
     test_inventory_globs: tuple[str, ...] = ("tests/**/*",)
 
@@ -289,6 +314,10 @@ class LoadedPackage:
                 command=bench_command,
                 objective=p.objective,
                 measured_region=p.measured_region,
+            ),
+            patch_scope=PatchScope(
+                patchable=p.patchable_paths,
+                immutable_hash=immutable_tree_hash(self.repo_dir, p.patchable_paths),
             ),
             resources=p.resources,
             seed=seed,

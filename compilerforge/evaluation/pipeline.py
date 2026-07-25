@@ -32,6 +32,7 @@ from compilerforge.evaluation.build import (
     Workspace,
     apply_patch,
     check_api_abi,
+    check_immutable_tree,
     check_patch_hygiene,
     check_test_inventory,
     run_public_tests,
@@ -48,6 +49,7 @@ from compilerforge.evaluation.measurement import (
 )
 from compilerforge.evaluation.safety import FuzzRunner, SanitizerRunner, SecondOptLevelCheck
 from compilerforge.evaluation.selection import SelectedTask
+from compilerforge.evaluation.statistics import Distribution
 from compilerforge.protocol.score import (
     GateName,
     GateResult,
@@ -108,6 +110,10 @@ class CandidatePatch:
 
 class TaskVoided(RuntimeError):
     """The task produced no score for anyone. Distinct from a candidate failing."""
+
+
+class CandidateUnmeasurable(RuntimeError):
+    """This patch could not be measured. A zero for its author, not a void."""
 
 
 @dataclass(slots=True)
@@ -180,6 +186,12 @@ class Evaluator:
             if self._failed():
                 return self._finish(artifact)
 
+            # Verified against the resulting tree, not the diff, and before any
+            # build or measurement runs against it.
+            self._record(check_immutable_tree(cand_ws, task))
+            if self._failed():
+                return self._finish(artifact)
+
             build_started = time.monotonic()
             build = self.ctx.builder.build(cand_ws, task, opt_level="-O2")
             self._record(
@@ -220,11 +232,35 @@ class Evaluator:
                 return self._finish(artifact)
 
             # -- Stage 5a: deterministic cost (consensus) --------------------
+            # Two very different failures live here and must not be conflated.
+            # If the *baseline* cannot be measured the task is broken for
+            # everyone. If the *candidate* cannot be measured that is this
+            # miner's patch, and voiding the task would let anyone kill any task
+            # at will — and, since a voided round cannot change the crown, let an
+            # incumbent defend itself indefinitely.
             try:
                 tier_a = self._measure_tier_a(base_ws, cand_ws, task, baseline)
+            except CandidateUnmeasurable as exc:
+                self._record(
+                    GateResult(
+                        name=GateName.CANDIDATE_MEASURABLE,
+                        passed=False,
+                        detail=str(exc)[:300],
+                    )
+                )
+                return self._finish(artifact)
             except MeasurementError as exc:
-                # A measurement we cannot trust is not a low score; it is no score.
-                raise TaskVoided(f"Tier A measurement failed: {exc}") from exc
+                # The baseline side. A measurement we cannot trust is not a low
+                # score; it is no score, for anyone.
+                raise TaskVoided(f"Tier A baseline measurement failed: {exc}") from exc
+
+            self._record(
+                GateResult(
+                    name=GateName.CANDIDATE_MEASURABLE,
+                    passed=True,
+                    detail="candidate measured deterministically",
+                )
+            )
             artifact.tier_a = tier_a
 
             # -- Stage 5b: wall-clock (reporting and sign agreement) ---------
@@ -305,12 +341,36 @@ class Evaluator:
     def _measure_tier_a(
         self, base_ws: Workspace, cand_ws: Workspace, task, baseline: Baseline | None
     ) -> TierAResult:
-        cand_counters = self.ctx.tier_a.measure(task.benchmark.command, cwd=cand_ws.root)
+        """Measure both sides, attributing any failure to the side that caused it.
+
+        Raises ``CandidateUnmeasurable`` for the candidate and ``MeasurementError``
+        for the baseline, so the caller can zero one miner rather than void a task
+        for all of them.
+        """
+        # Baseline first. Anything wrong here belongs to the task.
         base_counters = (
             list(baseline.tier_a_counters)
             if baseline is not None
             else self.ctx.tier_a.measure(task.benchmark.command, cwd=base_ws.root)
         )
+
+        try:
+            cand_counters = self.ctx.tier_a.measure(task.benchmark.command, cwd=cand_ws.root)
+        except MeasurementError as exc:
+            raise CandidateUnmeasurable(
+                f"the patched build could not be measured: {exc}"
+            ) from exc
+
+        # compare() also rejects a non-deterministic side. Check the candidate's
+        # own spread first so its non-determinism is attributed to the patch.
+        spread = Distribution(tuple(float(c.ir) for c in cand_counters)).relative_spread
+        if spread > SPEC.stability.max_tier_a_relative_spread:
+            raise CandidateUnmeasurable(
+                f"the patched build is not deterministic: Tier A varies by "
+                f"{spread:.6%} across repeats, above the "
+                f"{SPEC.stability.max_tier_a_relative_spread:.6%} tolerance"
+            )
+
         return self.ctx.tier_a.compare(base_counters, cand_counters)
 
     def _measure_tier_b(

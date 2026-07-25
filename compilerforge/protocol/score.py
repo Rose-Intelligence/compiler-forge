@@ -31,7 +31,9 @@ class GateName(StrEnum):
     ASAN = "asan"
     UBSAN = "ubsan"
     SECOND_OPT_LEVEL = "second_opt_level"
+    CANDIDATE_MEASURABLE = "candidate_measurable"
     PATCH_HYGIENE = "patch_hygiene"
+    IMMUTABLE_TREE = "immutable_tree"
     BASELINE_STABLE = "baseline_stable"
 
 

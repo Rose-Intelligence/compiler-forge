@@ -88,6 +88,27 @@ class BuildContract(_Frozen):
     cxx_compiler: str = "clang++"
 
 
+class PatchScope(_Frozen):
+    """Which files a patch is allowed to touch.
+
+    An allowlist, not a denylist. A denylist of "protected" paths has to
+    enumerate every file that could be abused, and it will always miss one — the
+    first version of this system protected tests and the build definition but not
+    the benchmark, and a patch that moved the instrumentation markers scored the
+    maximum possible capture while optimizing nothing.
+
+    Anything not matched here is validator-owned and immutable, so a package that
+    grows a new directory defaults to protected rather than open.
+    """
+
+    #: Glob patterns, relative to the repository root.
+    patchable: tuple[str, ...] = ("src/**", "include/**")
+    #: Hash over every file outside `patchable`, taken from the pristine package.
+    #: Verified after the patch applies, which catches additions and deletions
+    #: that a pattern check on the diff alone would miss.
+    immutable_hash: str = ""
+
+
 class TestContract(_Frozen):
     public_command: str
     hidden_contract: Literal["validator-owned"] = "validator-owned"
@@ -149,6 +170,9 @@ class Task(_Frozen):
 
     #: Derived from a future block hash. The agent must honour it
     #: via CF_SEED so a replay audit can reproduce the run.
+    #: What the patch may change. Everything else belongs to the validator.
+    patch_scope: PatchScope = Field(default_factory=PatchScope)
+
     seed: str
     network: Literal["none", "proxy"] = "none"
 

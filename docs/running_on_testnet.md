@@ -51,8 +51,8 @@ btcli subnet metagraph --netuid <netuid> --subtensor.network test
 
 ```bash
 sudo apt-get install -y clang cmake valgrind git
-git clone https://github.com/compilerforge/compilerforge
-cd compilerforge
+git clone https://github.com/Rose-Intelligence/compiler-forge
+cd compiler-forge
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 

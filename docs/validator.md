@@ -90,8 +90,8 @@ is for local development only.
 Then:
 
 ```bash
-git clone https://github.com/compilerforge/compilerforge
-cd compilerforge
+git clone https://github.com/Rose-Intelligence/compiler-forge
+cd compiler-forge
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```

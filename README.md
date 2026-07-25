@@ -152,8 +152,8 @@ weights nobody else can reproduce.
 ### Install
 
 ```bash
-git clone https://github.com/compilerforge/compilerforge
-cd compilerforge
+git clone https://github.com/Rose-Intelligence/compiler-forge
+cd compiler-forge
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```

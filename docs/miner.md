@@ -200,7 +200,8 @@ cf-eval gates      # prints this list with current thresholds
 | # | Gate | Fails when |
 |---|------|-----------|
 | 1 | `baseline_stable` | The *task* is unstable. Voided for everyone, not a zero for you |
-| 2 | `patch_hygiene` | Too many files or lines; edits the build definition or a test file |
+| 2 | `patch_hygiene` | The patch touches a file outside the declared patchable area |
+| 2b | `immutable_tree` | Anything outside that area was added, removed or modified |
 | 3 | `patch_applies` | The diff does not apply to the pinned revision |
 | 4 | `build` | Does not build with the pinned toolchain, or uses a forbidden flag |
 | 5 | `test_inventory` | Any test file changed — verified by hash, not by counting |
@@ -220,6 +221,26 @@ exist when you froze your artifact. A patch can pass every public test and still
 fail here — that is the gate doing its job, not a bug. The integration suite
 demonstrates exactly this case with an order-insensitive hash that merges
 anagrams: public tests pass, hidden inputs catch it.
+
+**`patch_hygiene` is an allowlist, not a denylist.** The task contract declares
+which paths you may touch — `src/**` and `include/**` for the shipped packages —
+and everything else belongs to the validator: the benchmark driver, the
+differential harness, the test suite, the build definition, the fuzz targets.
+
+This is stricter than it may first appear, and deliberately so. An earlier
+version protected tests and the build definition but not the benchmark, and a
+patch that moved the instrumentation markers out of the measured region scored
+the maximum possible capture while changing no library code at all. Every
+correctness gate passed, because the program's observable behaviour was
+identical — only the *measurement* had moved.
+
+`immutable_tree` is the second layer: it hashes everything outside the patchable
+area and compares it after your patch applies. The hygiene gate reads your diff;
+this reads the tree that resulted, which catches additions and deletions a
+diff-shaped check can miss.
+
+If your optimization genuinely needs to change something outside `src/**`, that
+is a corpus discussion rather than a patch — open an issue.
 
 **`second_opt_level` catches fake speedups.** Code whose speed depends on the
 compiler exploiting undefined behaviour usually changes behaviour when the

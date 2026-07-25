@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from compilerforge.corpus.package import inventory_hash
 from compilerforge.protocol.score import GateName, GateResult
@@ -94,15 +94,18 @@ def check_patch_hygiene(patch: str, task: Task) -> GateResult:
             f"adds {stats.added_lines} lines, cap is {SPEC.budget.max_patch_added_lines}"
         )
 
-    # A patch that edits the build system can change the flags it is measured
-    # under. That is not an optimization; it is measurement manipulation.
-    build_files = {"CMakeLists.txt", "Makefile", "meson.build", "configure.ac", "setup.py"}
+    # Every changed file must fall inside the declared patchable area. This is an
+    # allowlist because the denylist it replaced could not be made complete: it
+    # protected tests and the build definition but not the benchmark driver, and
+    # a patch that moved the instrumentation markers out of the measured region
+    # scored the maximum possible capture while optimizing nothing.
+    patchable = task.patch_scope.patchable
     for f in stats.changed_files:
-        name = Path(f).name
-        if name in build_files:
-            problems.append(f"modifies the build definition {f}")
-        if "/tests/" in f or f.startswith("tests/") or name.startswith("test_"):
-            problems.append(f"modifies validator-owned test file {f}")
+        if not _is_patchable(f, patchable):
+            problems.append(
+                f"{f} is outside the patchable area ({', '.join(patchable)}); it "
+                "belongs to the validator"
+            )
 
     return GateResult(
         name=GateName.PATCH_HYGIENE,
@@ -112,6 +115,48 @@ def check_patch_hygiene(patch: str, task: Task) -> GateResult:
             if problems
             else f"{stats.touched_count} files, "
             f"+{stats.added_lines}/-{stats.removed_lines}"
+        ),
+        seconds=time.monotonic() - started,
+    )
+
+
+def _is_patchable(relative_path: str, patterns: tuple[str, ...]) -> bool:
+    candidate = PurePosixPath(relative_path)
+    return any(candidate.match(pattern) for pattern in patterns)
+
+
+def check_immutable_tree(workspace: Workspace, task: Task) -> GateResult:
+    """Verify nothing outside the patchable area changed.
+
+    The hygiene gate reads the diff; this reads the tree that actually resulted.
+    A patch can add a file, delete one, or reach outside its declared scope in
+    ways a diff-shaped check will not notice, and the measurement runs against
+    the tree rather than against the diff.
+    """
+    from compilerforge.corpus.package import immutable_tree_hash
+
+    started = time.monotonic()
+    expected = task.patch_scope.immutable_hash
+    if not expected:
+        return GateResult(
+            name=GateName.IMMUTABLE_TREE,
+            passed=False,
+            detail=(
+                "the task declares no immutable-tree hash, so validator-owned "
+                "files cannot be verified; refusing to measure"
+            ),
+            seconds=time.monotonic() - started,
+        )
+
+    actual = immutable_tree_hash(workspace.root, task.patch_scope.patchable)
+    passed = actual == expected
+    return GateResult(
+        name=GateName.IMMUTABLE_TREE,
+        passed=passed,
+        detail=(
+            "validator-owned files unchanged"
+            if passed
+            else "a file outside the patchable area was added, removed or modified"
         ),
         seconds=time.monotonic() - started,
     )
