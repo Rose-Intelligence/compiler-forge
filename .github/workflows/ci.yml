@@ -91,7 +91,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang cmake valgrind time
+            clang cmake valgrind time libclang-rt-dev
 
       - name: Record toolchain versions
         # The toolchain digest is part of the score comparability tuple, so it
@@ -141,7 +141,12 @@ jobs:
     timeout-minutes: 30
     needs: lint-and-unit
     container:
-      image: python:3.12-slim-bookworm
+      # Pinned to the distribution whose clang the corpus reference speedups were
+      # measured against. A container with a different clang compiles different
+      # code, so the stored S_ref values would not describe it and the reference
+      # patch would not capture 1.000 — a red build for a correct system. Debian
+      # bookworm ships clang 14 and produced exactly that.
+      image: ubuntu:24.04
     strategy:
       fail-fast: false
       matrix:
@@ -151,30 +156,51 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install toolchain
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            clang cmake make valgrind time git diffutils patch
+            clang cmake make valgrind time git diffutils patch \
+            python3 python3-pip
+          # The sanitizer runtimes ship separately. Without them the ASan and
+          # UBSan gates fail to *build*, which reads as a failing candidate
+          # rather than as a missing dependency on the host.
+          apt-get install -y --no-install-recommends libclang-rt-dev
 
       - name: Record what we are measuring with
         # The toolchain digest is part of the score comparability tuple. If these
         # differ between legs the comparison below is meaningless, so they are
-        # recorded where a reader can check.
+        # recorded where a reader can check rather than assumed.
         run: |
           clang --version | head -1
           valgrind --version
-          cat /proc/cpuinfo | grep -m1 "model name" || true
+          grep -m1 "model name" /proc/cpuinfo || true
 
       - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python3 -m pip install --break-system-packages --upgrade pip
+          python3 -m pip install --break-system-packages -e ".[dev]"
 
       - name: Measure the reference patch
+        # stderr carries the gate table and any failure reason, so it is captured
+        # and printed on failure rather than discarded. Sending it to /dev/null
+        # made this step fail with "exit code 1" and nothing else — the exact
+        # silent failure this project refuses to tolerate everywhere except,
+        # briefly, in its own CI.
         run: |
-          python -m compilerforge.sdk.cli patch corpus/string-split \
+          set +e
+          python3 -m compilerforge.sdk.cli patch corpus/string-split \
             --patch corpus/string-split/reference.patch \
-            --seed 0xc1c1 --json 2>/dev/null > tier-a-${{ matrix.runner }}.json
+            --seed 0xc1c1 --json \
+            > tier-a-${{ matrix.runner }}.json 2> measure-stderr.txt
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::error::measuring the reference patch failed (exit $status)"
+            cat measure-stderr.txt
+            exit $status
+          fi
+          cat measure-stderr.txt
 
       - uses: actions/upload-artifact@v4
         with:
