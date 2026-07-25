@@ -123,47 +123,114 @@ jobs:
             --patch corpus/string-split/reference.patch \
             --seed 0xc1c1
 
-  # Deterministic measurement is the property consensus rests on. Running the
-  # same measurement on a second, independent runner is the cheapest possible
-  # check that it still holds across machines.
-  cross-host-determinism:
-    name: Cross-host Tier A agreement
-    runs-on: ${{ matrix.os }}
+  # Deterministic measurement is the property consensus rests on: Tier A decides
+  # scores precisely because instruction counts do not vary by host.
+  #
+  # Testing that requires varying the host and *nothing else*. The first version
+  # of this job ran on ubuntu-22.04 and ubuntu-24.04 directly, which also varied
+  # the compiler — those images ship different clang releases, and different
+  # codegen means different instruction counts for reasons that have nothing to
+  # do with the hardware. It reported a 6.5% difference in measured speedup and
+  # proved nothing.
+  #
+  # Both legs now run inside the same pinned container, so clang is byte-identical
+  # and the only remaining variable is the machine underneath.
+  measure:
+    name: Measure Tier A
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     needs: lint-and-unit
+    container:
+      image: python:3.12-slim-bookworm
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        runner: [ubuntu-22.04, ubuntu-24.04]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - name: Install toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang cmake valgrind time
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            clang cmake make valgrind time git diffutils patch
+
+      - name: Record what we are measuring with
+        # The toolchain digest is part of the score comparability tuple. If these
+        # differ between legs the comparison below is meaningless, so they are
+        # recorded where a reader can check.
+        run: |
+          clang --version | head -1
+          valgrind --version
+          cat /proc/cpuinfo | grep -m1 "model name" || true
 
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Measure the reference patch and print the instruction count
-        # Compare the printed counts across matrix legs by eye, or wire this to
-        # an artifact upload once there is somewhere to diff them.
+      - name: Measure the reference patch
         run: |
           python -m compilerforge.sdk.cli patch corpus/string-split \
             --patch corpus/string-split/reference.patch \
-            --seed 0xc1c1 --json | tee tier-a-${{ matrix.os }}.json
+            --seed 0xc1c1 --json 2>/dev/null > tier-a-${{ matrix.runner }}.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tier-a-${{ matrix.os }}
-          path: tier-a-${{ matrix.os }}.json
-          if-no-files-found: warn
+          name: tier-a-${{ matrix.runner }}
+          path: tier-a-${{ matrix.runner }}.json
+          if-no-files-found: error
+
+  # The assertion the matrix exists for. Kept as a separate job because it needs
+  # both legs to have finished.
+  cross-host-determinism:
+    name: Cross-host Tier A agreement
+    runs-on: ubuntu-latest
+    needs: measure
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tier-a-*
+          merge-multiple: true
+
+      - name: Instruction counts must be identical across hosts
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+
+          results = {}
+          for path in sorted(pathlib.Path(".").glob("tier-a-*.json")):
+              results[path.stem.replace("tier-a-", "")] = json.loads(path.read_text())
+
+          if len(results) < 2:
+              sys.exit(f"expected two measurements, found {sorted(results)}")
+
+          for host, data in results.items():
+              a = data["tier_a"]
+              print(f"{host:16} baseline={a['instructions_baseline']:>12,} "
+                    f"candidate={a['instructions_candidate']:>12,} "
+                    f"speedup={a['deterministic_speedup']:.9f}")
+
+          digests = {d["toolchain_digest"] for d in results.values()}
+          if len(digests) != 1:
+              sys.exit(
+                  "\ntoolchain digests differ, so these scores are not comparable "
+                  "by design and this comparison proves nothing:\n  "
+                  + "\n  ".join(sorted(digests))
+              )
+
+          counts = {
+              (d["tier_a"]["instructions_baseline"], d["tier_a"]["instructions_candidate"])
+              for d in results.values()
+          }
+          if len(counts) != 1:
+              sys.exit(
+                  "\nTier A is the consensus-bearing measurement and it disagreed "
+                  "across hosts running an identical toolchain. Two honest validators "
+                  "would produce different weight vectors for the same patch."
+              )
+
+          print("\nidentical across hosts, identical toolchain — Tier A holds")
+          PY
