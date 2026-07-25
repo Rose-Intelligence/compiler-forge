@@ -288,3 +288,73 @@ def test_the_reference_agent_predicts_its_own_result(evaluator, string_split):
     claimed = result.run.report.self_measurement.local_speedup_estimate
     measured = result.score.tier_a.deterministic_speedup
     assert claimed == pytest.approx(measured, rel=0.02)
+
+
+@requires_toolchain
+def test_the_build_uses_the_pinned_compiler(evaluator, string_split, tmp_path):
+    """The toolchain digest must describe the compiler that actually ran.
+
+    Nothing set CC for the first twenty-five commits, so CMake selected
+    /usr/bin/cc — gcc on a stock Ubuntu host — while the digest was computed from
+    clang. Two validators with the same clang and different gcc would produce
+    different instruction counts and report the same digest, marking incomparable
+    scores as comparable. That is precisely the failure the comparability tuple
+    exists to prevent.
+    """
+    import shutil as _shutil
+
+    from compilerforge.evaluation.build import (
+        PINNED_C_COMPILER,
+        Builder,
+        Workspace,
+    )
+
+    task = evaluator.build_task(string_split, seed="0xcc", profile_name="default")
+    workspace = Workspace.create(string_split.repo_dir, tmp_path / "pinned")
+
+    assert Builder().build(workspace, task.task, opt_level="-O2").ok
+
+    expected = Path(_shutil.which(PINNED_C_COMPILER)).resolve()
+    caches = list(workspace.root.rglob("CMakeCache.txt"))
+    assert caches, "the build produced no CMake cache to inspect"
+
+    for cache in caches:
+        for line in cache.read_text().splitlines():
+            if line.startswith("CMAKE_C_COMPILER:"):
+                used = Path(line.split("=", 1)[1].strip()).resolve()
+                assert used == expected, (
+                    f"build used {used}, but the toolchain digest is computed "
+                    f"from {expected}"
+                )
+
+
+@requires_toolchain
+def test_a_build_with_the_wrong_compiler_is_rejected(evaluator, string_split, tmp_path):
+    """The guard must fail closed, not warn.
+
+    The mismatch is constructed through the contract, which is the only way it
+    could occur in practice: a task pinning one compiler, and a cache recording
+    another.
+    """
+    import shutil as _shutil
+
+    from compilerforge.evaluation.build import Builder, ToolchainMismatch, Workspace
+
+    if not _shutil.which("gcc"):
+        pytest.skip("needs a second compiler to create the mismatch")
+
+    selected = evaluator.build_task(string_split, seed="0xcc", profile_name="default")
+    gcc_task = selected.task.model_copy(
+        update={
+            "build": selected.task.build.model_copy(
+                update={"c_compiler": "gcc", "cxx_compiler": "g++"}
+            )
+        }
+    )
+
+    workspace = Workspace.create(string_split.repo_dir, tmp_path / "mismatch")
+    assert Builder().build(workspace, gcc_task, opt_level="-O2").ok
+
+    # The cache now records gcc. Checking it against the clang pin must raise.
+    with pytest.raises(ToolchainMismatch, match="toolchain digest"):
+        Builder()._assert_pinned_compiler_was_used(workspace, "clang")

@@ -48,22 +48,22 @@ workload_profiles:
     args: ["--lines", "800", "--fields", "10", "--repeats", "3"]
     published: true
     selection_weight: 3.0
-    s_ref_deterministic: 1.315528
+    s_ref_deterministic: 1.334655
   - name: wide
     args: ["--lines", "300", "--fields", "40", "--repeats", "3"]
     published: true
     selection_weight: 2.0
-    s_ref_deterministic: 1.645072
+    s_ref_deterministic: 1.671688
   - name: tall
     args: ["--lines", "4000", "--fields", "4", "--repeats", "2"]
     published: true
     selection_weight: 2.0
-    s_ref_deterministic: 1.307483
+    s_ref_deterministic: 1.321563
   - name: dense-unpublished
     args: ["--lines", "1500", "--fields", "24", "--repeats", "2", "--seed", "0x9e37"]
     published: false
     selection_weight: 1.0
-    s_ref_deterministic: 1.620360
+    s_ref_deterministic: 1.646809
 
 # The parse tree must be identical; whitespace in the serialised form may move.
 equivalence_discipline: structural

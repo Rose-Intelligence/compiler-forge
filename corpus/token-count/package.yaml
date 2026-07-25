@@ -46,17 +46,17 @@ workload_profiles:
     args: ["--tokens", "12000", "--vocabulary", "40", "--repeats", "2"]
     published: true
     selection_weight: 3.0
-    s_ref_deterministic: 4.049039
+    s_ref_deterministic: 3.875780
   - name: medium-vocabulary
     args: ["--tokens", "12000", "--vocabulary", "80", "--repeats", "2"]
     published: true
     selection_weight: 2.0
-    s_ref_deterministic: 6.755901
+    s_ref_deterministic: 6.432026
   - name: large-vocabulary
     args: ["--tokens", "12000", "--vocabulary", "150", "--repeats", "2"]
     published: false
     selection_weight: 1.0
-    s_ref_deterministic: 10.295934
+    s_ref_deterministic: 9.749293
 
 # Word counts must match exactly; the order a data structure stores them in is
 # not part of the contract, and the differential harness sorts before comparing.

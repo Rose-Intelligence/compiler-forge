@@ -175,12 +175,31 @@ class BuildResult:
     compile_seconds: float = 0.0
 
 
+#: The V1 scope is one pinned LLVM/Clang toolchain. These are the compilers the
+#: toolchain digest is computed from, so they must also be the ones that actually
+#: run — see Builder.build.
+PINNED_C_COMPILER = "clang"
+PINNED_CXX_COMPILER = "clang++"
+
+
+class ToolchainMismatch(RuntimeError):
+    """The build used a different compiler than the one the digest claims.
+
+    Fatal rather than a warning. Two validators reporting the same toolchain
+    digest while compiling with different compilers would mark incomparable
+    scores as comparable, which is the exact failure the digest exists to
+    prevent.
+    """
+
+
 @dataclass(slots=True)
 class Builder:
     """Runs the pinned toolchain. The task contract owns the flags, not the patch."""
 
     timeout_seconds: int = 3600
     extra_env: dict[str, str] = field(default_factory=dict)
+    c_compiler: str = PINNED_C_COMPILER
+    cxx_compiler: str = PINNED_CXX_COMPILER
 
     def build(
         self,
@@ -200,9 +219,16 @@ class Builder:
             # Without these a sanitizer report is a line number short of useful.
             flags += ["-fno-omit-frame-pointer", "-g"]
 
+        # CC and CXX are not optional. Without them CMake picks whatever compiler
+        # it finds first — /usr/bin/cc, which is gcc on a stock Ubuntu host — while
+        # the toolchain digest is computed from clang. Two validators would then
+        # compile with different compilers, produce different instruction counts,
+        # and report the same digest, marking incomparable scores as comparable.
         env = {
             **os.environ,
             **self.extra_env,
+            "CC": task.build.c_compiler or self.c_compiler,
+            "CXX": task.build.cxx_compiler or self.cxx_compiler,
             "CFLAGS": " ".join(flags),
             "CXXFLAGS": " ".join(flags),
             "CF_TOOLCHAIN_DIGEST": task.build.toolchain_digest,
@@ -233,9 +259,45 @@ class Builder:
                     compile_seconds=elapsed,
                 )
 
+        if proc.returncode == 0:
+            self._assert_pinned_compiler_was_used(
+                workspace, task.build.c_compiler or self.c_compiler
+            )
+
         return BuildResult(
             ok=proc.returncode == 0, seconds=elapsed, log_tail=log, compile_seconds=elapsed
         )
+
+    def _assert_pinned_compiler_was_used(
+        self, workspace: Workspace, compiler: str | None = None
+    ) -> None:
+        """Confirm CMake honoured CC rather than selecting its own default.
+
+        Setting the environment variable is not proof it was used: CMake caches
+        the compiler on first configure, so a stale build directory or a project
+        that hardcodes CMAKE_C_COMPILER would silently ignore it. The cache is
+        the record of what actually ran.
+        """
+        compiler = compiler or self.c_compiler
+        expected = shutil.which(compiler)
+        if expected is None:
+            raise ToolchainMismatch(
+                f"the pinned C compiler {compiler!r} is not installed; a "
+                "validator cannot produce comparable measurements without it"
+            )
+
+        for cache in workspace.root.rglob("CMakeCache.txt"):
+            for line in cache.read_text(errors="replace").splitlines():
+                if not line.startswith("CMAKE_C_COMPILER:"):
+                    continue
+                used = line.split("=", 1)[1].strip()
+                if Path(used).resolve() != Path(expected).resolve():
+                    raise ToolchainMismatch(
+                        f"build used {used}, but the toolchain digest is computed "
+                        f"from {expected}. Scores from this build would be marked "
+                        "comparable with scores from a different compiler."
+                    )
+                return
 
 
 def check_test_inventory(workspace: Workspace, task: Task, globs: tuple[str, ...]) -> GateResult:
@@ -355,7 +417,7 @@ def toolchain_digest() -> str:
     not measuring the same program, and must not compare scores.
     """
     parts: list[str] = []
-    for tool in ("clang", "clang++", "ld", "cmake"):
+    for tool in (PINNED_C_COMPILER, PINNED_CXX_COMPILER, "ld", "cmake"):
         path = shutil.which(tool)
         if not path:
             parts.append(f"{tool}=absent")

@@ -149,6 +149,10 @@ class TaskPackage(BaseModel):
 
     build_command: str
     forbidden_flags: tuple[str, ...] = ()
+    #: The pinned toolchain. Overridable per package for a future track that
+    #: needs a different compiler, but V1 is one pinned LLVM/Clang.
+    c_compiler: str = "clang"
+    cxx_compiler: str = "clang++"
     test_command: str
     test_inventory_globs: tuple[str, ...] = ("tests/**/*",)
 
@@ -267,6 +271,8 @@ class LoadedPackage:
                 command=p.build_command,
                 toolchain_digest=toolchain_digest,
                 forbidden_flags=p.forbidden_flags,
+                c_compiler=p.c_compiler,
+                cxx_compiler=p.cxx_compiler,
             ),
             tests=TestContract(
                 public_command=p.test_command,

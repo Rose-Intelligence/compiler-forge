@@ -84,9 +84,23 @@ class ReferenceAgent:
     # -- step 1: reproduce the baseline ----------------------------------
 
     def build(self, tree: Path) -> bool:
+        """Build with the compiler the task contract pins.
+
+        Setting CC matters as much here as it does on the validator. Without it
+        the build system picks whatever it finds first, and the agent ends up
+        optimizing against a different compiler than the one it is measured
+        under — tuning one program and being scored on another.
+        """
+        build = self.task["build"]
+        env = {
+            **os.environ,
+            "CC": build.get("c_compiler", "clang"),
+            "CXX": build.get("cxx_compiler", "clang++"),
+        }
         proc = subprocess.run(  # noqa: S603
-            ["/bin/sh", "-c", self.task["build"]["command"]],
+            ["/bin/sh", "-c", build["command"]],
             cwd=tree,
+            env=env,
             capture_output=True,
             text=True,
             timeout=1800,
