@@ -162,7 +162,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             clang cmake make valgrind time git diffutils patch \
-            python3 python3-pip
+            python3 python3-venv
           # The sanitizer runtimes ship separately. Without them the ASan and
           # UBSan gates fail to *build*, which reads as a failing candidate
           # rather than as a missing dependency on the host.
@@ -178,9 +178,19 @@ jobs:
           grep -m1 "model name" /proc/cpuinfo || true
 
       - name: Install
+        # A virtualenv rather than --break-system-packages. Upgrading the
+        # distribution's own pip cannot work: dpkg installed it without the
+        # RECORD file pip needs to uninstall it, so the step dies with
+        # "Cannot uninstall pip 24.0, RECORD file not found".
+        #
+        # --break-system-packages sidesteps the refusal to install *into* the
+        # system environment, but not the refusal to *replace* a dpkg-owned
+        # package. A venv avoids the question and isolates the build from
+        # whatever the base image happens to ship.
         run: |
-          python3 -m pip install --break-system-packages --upgrade pip
-          python3 -m pip install --break-system-packages -e ".[dev]"
+          python3 -m venv /opt/cf
+          /opt/cf/bin/pip install --quiet --upgrade pip
+          /opt/cf/bin/pip install --quiet -e ".[dev]"
 
       - name: Measure the reference patch
         # stderr carries the gate table and any failure reason, so it is captured
@@ -190,7 +200,7 @@ jobs:
         # briefly, in its own CI.
         run: |
           set +e
-          python3 -m compilerforge.sdk.cli patch corpus/string-split \
+          /opt/cf/bin/python -m compilerforge.sdk.cli patch corpus/string-split \
             --patch corpus/string-split/reference.patch \
             --seed 0xc1c1 --json \
             > tier-a-${{ matrix.runner }}.json 2> measure-stderr.txt
