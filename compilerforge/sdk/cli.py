@@ -151,6 +151,39 @@ def patch(
 
 
 @app.command()
+def verify(
+    package: Path = typer.Argument(..., help="Task package directory"),
+    patch_file: Path = typer.Option(..., "--patch", help="Unified diff to verify"),
+    seed: str = typer.Option("0x1234", help="Task seed"),
+    profile: str | None = typer.Option(None, help="Workload profile name"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR, help="Scratch directory"),
+    tier_b: bool = typer.Option(False, help="Also measure wall-clock"),
+    json_output: bool = typer.Option(False, "--json", help="Emit the artifact"),
+) -> None:
+    """Check a patch is correct and measure it, without scoring it.
+
+    Runs the same gates and the same measurement a validator runs, but computes
+    no capture — so the package does not need an expert reference patch. This is
+    the mode for someone optimizing their own code, who wants to know whether the
+    change is safe and how much it saved, not what it would be paid.
+    """
+    loaded = LoadedPackage.load(package)
+    evaluator = LocalEvaluator(workdir=workdir, tier_b_enabled=tier_b)
+    selected = evaluator.build_task(loaded, seed=seed, profile_name=profile)
+
+    with console.status("Running the gate sequence..."):
+        result = evaluator.verify_patch(patch_file.read_text(), selected)
+
+    _print_result(result, json_output=json_output)
+    if not json_output:
+        console.print(
+            "[dim]Verification only: no capture and no score were computed, so "
+            "this result is not a consensus measurement.[/dim]"
+        )
+    raise typer.Exit(0 if result.score is not None and result.score.all_gates_passed() else 1)
+
+
+@app.command()
 def gates() -> None:
     """Print the gate sequence a candidate must survive, in order."""
     table = Table(title="Evaluation gates")

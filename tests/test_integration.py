@@ -432,3 +432,48 @@ def test_a_patch_that_edits_a_public_header_is_rejected(evaluator, matrix_stats)
     result = evaluator.evaluate_patch(patch, task)
 
     assert result.score is None or not result.score.all_gates_passed()
+
+
+@requires_toolchain
+def test_verification_works_without_a_reference_patch(evaluator, matrix_stats, tmp_path):
+    """The customer-facing half of the pipeline does not need an expert patch.
+
+    Capture is a fraction of what a human expert achieved, so scoring needs a
+    measured reference. Correctness and speed do not — and authoring a reference
+    is the expensive part of onboarding a repository. Someone optimizing their own
+    code should be able to ask "is this safe, and how much did it save" without
+    first producing the answer they are trying to find.
+    """
+    import shutil
+
+    import yaml
+
+    # A package as a real user would have it: no reference, no s_ref.
+    own = tmp_path / "own-repo"
+    shutil.copytree(matrix_stats.root, own)
+    manifest = yaml.safe_load((own / "package.yaml").read_text())
+    manifest.pop("reference", None)
+    for profile in manifest["workload_profiles"]:
+        profile.pop("s_ref_deterministic", None)
+    (own / "package.yaml").write_text(yaml.safe_dump(manifest))
+
+    package = LoadedPackage.load(own)
+    task = evaluator.build_task(package, seed="0xverify")
+    patch = (CORPUS / "matrix-stats" / "reference.patch").read_text()
+
+    # Scoring must refuse: there is nothing to normalise capture against.
+    scored = evaluator.evaluate_patch(patch, task)
+    assert scored.score is None
+    assert "reference speedup" in (scored.voided_reason or "")
+
+    # Verification must succeed, run every gate, and measure.
+    verified = evaluator.verify_patch(patch, task)
+    assert verified.score is not None, verified.voided_reason
+    assert verified.score.all_gates_passed(), verified.summary()
+    assert verified.score.tier_a is not None
+    assert verified.score.tier_a.deterministic_speedup > 2.0
+
+    # And it must not present itself as a consensus result.
+    assert verified.score.reference is None
+    assert verified.score.score == 0.0
+    assert "not scored" in verified.summary()
