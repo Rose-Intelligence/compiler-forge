@@ -61,6 +61,16 @@ jobs:
       - name: Unit tests
         run: pytest -m "not slow" -q
 
+      - name: Console scripts resolve
+        # An entry point is only resolved when invoked, so a moved module leaves
+        # a command on PATH that dies with ImportError while `pip install`
+        # reports success. This shipped a broken cf-validator for 16 commits.
+        run: |
+          for script in cf-eval cf-corpus cf-miner cf-validator; do
+            echo "== $script"
+            "$script" --help > /dev/null
+          done
+
   # The tests that need real clang, real sanitizers and real Callgrind. Slower,
   # and the only place the two-tier measurement claim is actually checked.
   integration:
