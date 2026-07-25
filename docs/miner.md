@@ -46,7 +46,7 @@ Captures are combined across tasks in log space, so one enormous win cannot
 compensate for repeated failures. Four solid results beat one spectacular one
 plus three zeroes.
 
-Full mechanism: [incentive_mechanism.md](incentive_mechanism.md).
+Full mechanism: [architecture.md](architecture.md#incentive-mechanism).
 
 ### Two things worth internalising early
 
