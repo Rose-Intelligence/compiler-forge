@@ -1,0 +1,82 @@
+# window-checksum — every window recomputed from scratch.
+#
+# Consecutive windows overlap in all but two bytes, and nothing in the baseline
+# uses that. Scanning costs O(len * width) where O(len) was available, and the
+# fix is the classic one: carry the accumulator forward instead of resumming.
+#
+# The subtlety is the modulus. The checksum is taken mod 65521 on every step, so
+# a rolling implementation has to remove the departing byte without underflowing
+# and still agree byte for byte with the version that resummed. An agent that
+# gets the arithmetic nearly right fails the differential rather than scoring.
+#
+# Held out of the published corpus.
+
+package_id: window-checksum
+family: networking
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: true
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_wchk
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+# Reads one case on stdin and prints every declared observable. Kept separate
+# from the benchmark, which is argument-driven and prints a summary.
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+# Window width is exactly the factor the rolling form removes, so it is what the
+# profiles vary. Buffer size is held constant so the profiles differ in one
+# variable only.
+workload_profiles:
+  - name: narrow-window
+    args: ["--bytes", "4000", "--width", "8"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 4.547955
+  - name: medium-window
+    args: ["--bytes", "4000", "--width", "24"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 12.253304
+  - name: wide-window
+    args: ["--bytes", "4000", "--width", "40"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 19.928423
+
+# The differential harness prints its observables in a fixed order, so the
+# comparison is exact. Nothing here is order-independent.
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

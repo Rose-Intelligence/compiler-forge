@@ -1,0 +1,64 @@
+--- a/src/recpack.c
++++ b/src/recpack.c
+@@ -26,13 +26,14 @@
+     return total;
+ }
+ 
++/* One pass that both validates and totals. The two used to be separate walks
++ * over the same fields, each measuring them again. */
+ static int fields_fit(const rp_record *records, size_t count)
+ {
+     for (size_t i = 0; i < count; i++) {
+-        if (rp_field_len(records[i].key) > 255) {
+-            return 0;
+-        }
+-        if (rp_field_len(records[i].value) > 255) {
++        const size_t klen = rp_field_len(records[i].key);
++        const size_t vlen = rp_field_len(records[i].value);
++        if (klen > 255 || vlen > 255) {
+             return 0;
+         }
+     }
+@@ -51,22 +52,19 @@
+         return NULL;
+     }
+ 
+-    unsigned char *out = NULL;
++    /* rp_packed_size already walked the records to total this, so allocate the
++     * whole buffer once from its answer instead of growing per record. */
++    const size_t capacity = rp_packed_size(records, count);
++    unsigned char *out = malloc(capacity > 0 ? capacity : 1);
++    if (out == NULL) {
++        return NULL;
++    }
+     size_t written = 0;
+ 
+     for (size_t i = 0; i < count; i++) {
+-        /* Each field is measured again here, and the buffer is grown to fit
+-         * exactly this record, so every record copies everything before it. */
+         size_t klen = rp_field_len(records[i].key);
+         size_t vlen = rp_field_len(records[i].value);
+ 
+-        unsigned char *grown = realloc(out, written + 2 + klen + vlen);
+-        if (grown == NULL) {
+-            free(out);
+-            return NULL;
+-        }
+-        out = grown;
+-
+         out[written++] = (unsigned char)klen;
+         memcpy(out + written, records[i].key ? records[i].key : "", klen);
+         written += klen;
+@@ -75,12 +73,6 @@
+         written += vlen;
+     }
+ 
+-    if (out == NULL) {
+-        out = malloc(1);
+-        if (out == NULL) {
+-            return NULL;
+-        }
+-    }
+     if (out_len != NULL) {
+         *out_len = written;
+     }

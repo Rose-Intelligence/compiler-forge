@@ -1,0 +1,80 @@
+# run-length — an encoder that is quadratic in the size of its own output.
+#
+# Two inefficiencies of different kinds sit in one file. The length of the input
+# is recomputed inside a loop condition, which is a local mistake; and the output
+# buffer is grown one pair at a time, which is a structural one. The function
+# that answers "how big will the output be" already exists and is never used to
+# size the allocation.
+#
+# Held out of the published corpus. An artifact that scores here has transferred
+# technique rather than memorised a target.
+
+package_id: run-length
+family: compression
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: true
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_rle
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+# Reads one case on stdin and prints every declared observable. Kept separate
+# from the benchmark, which is argument-driven and prints a summary.
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+# Mean run length is the axis that decides how many pairs the encoder appends,
+# and therefore how much the quadratic growth costs. Input size is held constant
+# so the profiles differ in one variable only.
+workload_profiles:
+  - name: short-runs
+    args: ["--bytes", "8000", "--run", "3", "--repeats", "3"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 5.772382
+  - name: mixed-runs
+    args: ["--bytes", "8000", "--run", "9", "--repeats", "3"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 3.906065
+  - name: long-runs
+    args: ["--bytes", "8000", "--run", "24", "--repeats", "3"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 2.375093
+
+# The differential harness prints its observables in a fixed order, so the
+# comparison is exact. Nothing here is order-independent.
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

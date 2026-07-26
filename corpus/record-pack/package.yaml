@@ -1,0 +1,80 @@
+# record-pack — a serialiser that measures the same fields three times.
+#
+# The waste here is neither a bad algorithm nor a bad data structure. Every pass
+# is individually reasonable: total the size, validate the fields, then write
+# them. The cost is that each pass re-measures fields the previous pass already
+# measured, and the writer grows its buffer per record despite having been
+# handed the exact total.
+#
+# It is the shape of inefficiency that shows up most often in real code, and the
+# hardest for a pattern-matching agent to see, because no single line looks wrong.
+
+package_id: record-pack
+family: serialisation
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_recpack
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+# Reads one case on stdin and prints every declared observable. Kept separate
+# from the benchmark, which is argument-driven and prints a summary.
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+# Field length decides how much each redundant measurement pass costs relative
+# to the copying, so it is what the profiles vary. Record count is held constant
+# so the profiles differ in one variable only.
+workload_profiles:
+  - name: short-fields
+    args: ["--records", "700", "--field", "6", "--repeats", "3"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 1.209614
+  - name: mixed-fields
+    args: ["--records", "700", "--field", "20", "--repeats", "3"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 1.273029
+  - name: long-fields
+    args: ["--records", "700", "--field", "60", "--repeats", "3"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 1.155040
+
+# The differential harness prints its observables in a fixed order, so the
+# comparison is exact. Nothing here is order-independent.
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

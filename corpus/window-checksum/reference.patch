@@ -1,0 +1,50 @@
+--- a/src/wchk.c
++++ b/src/wchk.c
+@@ -28,10 +28,21 @@
+     }
+ 
+     const size_t windows = len - width + 1;
+-    for (size_t w = 0; w < windows; w++) {
+-        /* Each window is summed from scratch, re-reading width-2 bytes that the
+-         * previous window already accounted for. */
+-        out[w] = wchk_window(data, len, w, width);
++
++    /* Consecutive windows differ by one byte leaving and one arriving, so the
++     * first is summed and the rest are carried forward. The modulus is applied
++     * on every step exactly as before, and the subtraction is done by adding
++     * the complement so the accumulator never underflows. */
++    uint32_t acc = 0;
++    for (size_t i = 0; i < width; i++) {
++        acc = wchk_add(acc, data[i]);
++    }
++    out[0] = acc;
++
++    for (size_t w = 1; w < windows; w++) {
++        acc = (acc + WCHK_MOD - (data[w - 1] % WCHK_MOD)) % WCHK_MOD;
++        acc = wchk_add(acc, data[w + width - 1]);
++        out[w] = acc;
+     }
+     return windows;
+ }
+@@ -45,8 +56,19 @@
+ 
+     const size_t windows = len - width + 1;
+     size_t seen = 0;
+-    for (size_t w = 0; w < windows; w++) {
+-        if (wchk_window(data, len, w, width) % divisor == 0) {
++
++    uint32_t acc = 0;
++    for (size_t i = 0; i < width; i++) {
++        acc = wchk_add(acc, data[i]);
++    }
++    if (acc % divisor == 0) {
++        seen++;
++    }
++
++    for (size_t w = 1; w < windows; w++) {
++        acc = (acc + WCHK_MOD - (data[w - 1] % WCHK_MOD)) % WCHK_MOD;
++        acc = wchk_add(acc, data[w + width - 1]);
++        if (acc % divisor == 0) {
+             seen++;
+         }
+     }

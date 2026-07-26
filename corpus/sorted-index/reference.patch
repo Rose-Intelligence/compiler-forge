@@ -1,0 +1,63 @@
+--- a/src/sortedindex.c
++++ b/src/sortedindex.c
+@@ -62,17 +62,34 @@
+     return index == NULL ? 0 : index->count;
+ }
+ 
++/* First position whose key is >= probe. The keys are sorted, so this is the
++ * only fact either query needed. */
++static size_t si_lower_bound(const si_index *index, const char *probe)
++{
++    size_t lo = 0;
++    size_t hi = index->count;
++    while (lo < hi) {
++        size_t mid = lo + (hi - lo) / 2;
++        if (si_key_cmp(index->keys[mid], probe) < 0) {
++            lo = mid + 1;
++        } else {
++            hi = mid;
++        }
++    }
++    return lo;
++}
++
+ size_t si_lookup(const si_index *index, const char *key)
+ {
+     if (index == NULL || key == NULL) {
+         return SI_NOT_FOUND;
+     }
+ 
+-    /* The keys are sorted and this walks all of them anyway. */
+-    for (size_t i = 0; i < index->count; i++) {
+-        if (si_key_cmp(index->keys[i], key) == 0) {
+-            return i;
+-        }
++    /* Lower bound, then one equality check. Returning the first of any run of
++     * equal keys matches what the scan did. */
++    size_t at = si_lower_bound(index, key);
++    if (at < index->count && si_key_cmp(index->keys[at], key) == 0) {
++        return at;
+     }
+     return SI_NOT_FOUND;
+ }
+@@ -83,13 +100,15 @@
+         return 0;
+     }
+ 
+-    /* Matches occupy one contiguous run because the keys are sorted. This scans
+-     * past the end of that run to the end of the array regardless. */
++    /* Matches occupy one contiguous run, so find where it starts and walk only
++     * that far. Cost becomes log(n) plus the number of matches actually found,
++     * instead of the size of the index. */
+     size_t seen = 0;
+-    for (size_t i = 0; i < index->count; i++) {
+-        if (si_has_prefix(index->keys[i], prefix)) {
+-            seen++;
++    for (size_t i = si_lower_bound(index, prefix); i < index->count; i++) {
++        if (!si_has_prefix(index->keys[i], prefix)) {
++            break;
+         }
++        seen++;
+     }
+     return seen;
+ }
