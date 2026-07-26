@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -142,6 +143,13 @@ class ArtifactRunner:
         }
         prof.assert_mounts_safe(mounts)
 
+        # /output is the artifact's only writable mount, but it is created by this
+        # process and the artifact runs as an unprivileged non-root user. Without
+        # this the agent cannot write its own report, and the interface check reads
+        # a validator-side permission error as a miner-side violation — a zero for
+        # work that was actually done.
+        _grant_output_access(out_dir, prof.run_as_user)
+
         args = [self.container_cli, "run", "--rm"]
         args += prof.container_args()
         args += [f"--volume={repo_dir}:/workspace/repo:ro"]
@@ -149,7 +157,13 @@ class ArtifactRunner:
         args += [f"--volume={out_dir}:/output:rw"]
         # Writable scratch that vanishes with the container, so the read-only
         # rootfs does not force the agent to be creative about where it works.
-        args += ["--tmpfs=/tmp:rw,noexec,nosuid,size=2g"]
+        #
+        # `exec` is required, not an oversight: the rootfs is read-only, so this is
+        # the only place an agent can put a binary, and an optimization agent that
+        # cannot run what it just compiled cannot reproduce a baseline at all. The
+        # isolation that matters here is the runtime boundary and `nosuid`, not
+        # noexec on a tmpfs the agent already fully controls.
+        args += ["--tmpfs=/tmp:rw,exec,nosuid,size=2g"]
         args += ["--env", f"CF_SEED={task.seed}"]
         args += ["--env", f"CF_TASK_ID={task.task_id}"]
         args += ["--env", f"CF_INTERFACE_VERSION={task.interface_version}"]
@@ -217,6 +231,21 @@ class ArtifactRunner:
             raise ArtifactError(
                 f"self-reported token use {run.report.budget_used.model_tokens} exceeds budget {budget}"
             )
+
+
+def _grant_output_access(out_dir: Path, run_as_user: str) -> None:
+    """Make the output mount writable by the unprivileged user the artifact runs as.
+
+    Prefers chown, which keeps the directory private to that user. A validator
+    running without the privilege to chown falls back to a permissive mode: the
+    directory holds only this artifact's own output, and the alternative is
+    failing every run.
+    """
+    uid_s, _, gid_s = run_as_user.partition(":")
+    try:
+        os.chown(out_dir, int(uid_s), int(gid_s or uid_s))
+    except (PermissionError, ValueError, OSError):
+        out_dir.chmod(0o777)
 
 
 async def _run(*args: str) -> tuple[int, str]:

@@ -196,9 +196,10 @@ cf-eval gates
 # Evaluate the reference patch. Capture should come out at 1.000 by definition.
 cf-eval patch corpus/string-split --patch corpus/string-split/reference.patch
 
-# Run an agent end to end.
+# Run an agent end to end. The entrypoint runs from a scratch directory, not from
+# this checkout, so give it an absolute path.
 cf-eval agent corpus/string-split \
-    --entrypoint "python3 compilerforge/miner/reference_agent/agent.py"
+    --entrypoint "python3 $PWD/compilerforge/miner/reference_agent/agent.py"
 ```
 
 ---
