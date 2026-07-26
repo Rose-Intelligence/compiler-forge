@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,7 +44,17 @@ PROBE_IMAGE = "docker.io/library/debian:bookworm-slim"
 
 
 def _cli() -> str | None:
-    return shutil.which("docker") or shutil.which("podman")
+    """Prefer podman, and prefer it deliberately.
+
+    podman is daemonless, so a test container cannot disturb a shared Docker
+    daemon that may be running unrelated production workloads on the same host.
+    Falling back to docker is fine on a dedicated machine and is what CI has.
+    Override with ``CF_TEST_CONTAINER_CLI``.
+    """
+    override = os.environ.get("CF_TEST_CONTAINER_CLI")
+    if override:
+        return shutil.which(override)
+    return shutil.which("podman") or shutil.which("docker")
 
 
 def _daemon_reachable(cli: str) -> bool:
@@ -126,7 +137,7 @@ def test_an_unprivileged_artifact_can_write_its_report(tmp_path):
     """
     task, repo = _task(tmp_path)
     profile = _profile()
-    runner = ArtifactRunner(workdir=tmp_path / "runs")
+    runner = ArtifactRunner(workdir=tmp_path / "runs", container_cli=_CLI)
     runner.workdir.mkdir(parents=True, exist_ok=True)
 
     # Exactly what the interface requires, written the way an agent writes it.
@@ -172,7 +183,7 @@ def test_the_output_mount_is_owned_by_the_artifact_user(tmp_path):
     """
     task, repo = _task(tmp_path)
     profile = _profile()
-    runner = ArtifactRunner(workdir=tmp_path / "runs")
+    runner = ArtifactRunner(workdir=tmp_path / "runs", container_cli=_CLI)
     runner.workdir.mkdir(parents=True, exist_ok=True)
 
     run = asyncio.run(
@@ -206,7 +217,7 @@ def test_an_agent_can_execute_what_it_compiled(tmp_path):
     """
     task, repo = _task(tmp_path)
     profile = _profile()
-    runner = ArtifactRunner(workdir=tmp_path / "runs")
+    runner = ArtifactRunner(workdir=tmp_path / "runs", container_cli=_CLI)
     runner.workdir.mkdir(parents=True, exist_ok=True)
 
     run = asyncio.run(
