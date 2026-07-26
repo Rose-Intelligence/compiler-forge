@@ -264,9 +264,13 @@ def _detect_build(result: Detected, files: list[Path]) -> None:
             "cmake --build build -j$(nproc)"
         )
         if len(entry_points) > 1:
+            others = ", ".join(sorted(p.name for p in entry_points[1:]))
             result.warnings.append(
                 f"{len(entry_points)} source files define main(); "
-                f"{entry_points[0].name} was used as the entry point."
+                f"{entry_points[0].name} was used as the entry point and the "
+                f"rest were left out of the build ({others}). Two mains cannot "
+                "link into one program. If the wrong one was chosen, upload "
+                "only the code you want measured."
             )
         return
 
@@ -500,8 +504,22 @@ def write_build_definition(repo: Path, detected: Detected) -> Path:
     if entry is None:
         raise ScaffoldError("no entry point to build")
 
+    # Every translation unit except the rival entry points. A project with a
+    # benchmark and a test runner has several files defining main(), and linking
+    # them into one executable fails with "multiple definition of `main`" —
+    # a generated build that cannot possibly link, reported to the user as
+    # "baseline does not build" with nothing pointing at the cause.
+    rivals = {
+        p.resolve()
+        for p in detected.source_files
+        if p.resolve() != entry.resolve() and _MAIN.search(_read(p))
+    }
     sources = sorted(
-        {str(p.relative_to(detected.root)) for p in detected.source_files}
+        {
+            str(p.relative_to(detected.root))
+            for p in detected.source_files
+            if p.resolve() not in rivals
+        }
     )
     cxx = any(p.suffix.lower() != ".c" for p in detected.source_files)
     languages = "CXX" if cxx else "C"
