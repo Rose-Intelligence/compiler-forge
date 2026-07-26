@@ -119,7 +119,14 @@ class SanitizerRunner:
             "TSAN_OPTIONS": "halt_on_error=0",
         }
 
-        to_run = commands or (task.tests.public_command, task.benchmark.command)
+        # The sanitizers run whatever the package can offer. A package with no
+        # test suite still has a benchmark, so there is always something to run
+        # under ASan and UBSan — but None must be filtered rather than handed to
+        # a shell, which is a crash three frames down with nothing naming the
+        # cause.
+        to_run = commands or tuple(
+            c for c in (task.tests.public_command, task.benchmark.command) if c
+        )
         findings: list[SanitizerFinding] = []
         for command in to_run:
             proc = subprocess.run(  # noqa: S603

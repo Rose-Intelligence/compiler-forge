@@ -387,11 +387,12 @@ def _detect_tests(
         ]
     if not candidates:
         result.warnings.append(
-            "no test sources were found. The pipeline will still measure the "
-            "patch, but 'it still works' rests on the differential comparison "
-            "alone, which is weaker than a suite the project's authors wrote."
+            "no test suite was found, so the test gate has nothing to run and "
+            "will report itself skipped rather than passed. 'It still works' "
+            "then rests on the differential comparison alone, which is weaker "
+            "than a suite the project's authors wrote."
         )
-        result.test_command = "true"
+        result.test_command = None
         return
 
     if result.build_system == "cmake":

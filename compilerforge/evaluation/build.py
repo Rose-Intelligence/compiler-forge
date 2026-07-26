@@ -366,6 +366,19 @@ def check_test_inventory(workspace: Workspace, task: Task, globs: tuple[str, ...
 
 def run_public_tests(workspace: Workspace, task: Task, *, timeout: int = 1800) -> GateResult:
     started = time.monotonic()
+
+    if not task.tests.public_command:
+        # Nothing to run. Reporting this as a pass would be indistinguishable
+        # from a suite that ran and succeeded, which is the one thing this gate
+        # exists to tell a reader.
+        return GateResult(
+            name=GateName.PUBLIC_TESTS,
+            passed=True,
+            skipped=True,
+            detail="no test suite in this package; nothing was run",
+            seconds=time.monotonic() - started,
+        )
+
     proc = subprocess.run(  # noqa: S603
         ["/bin/sh", "-c", task.tests.public_command],
         cwd=workspace.root,

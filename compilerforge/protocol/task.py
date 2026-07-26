@@ -110,7 +110,10 @@ class PatchScope(_Frozen):
 
 
 class TestContract(_Frozen):
-    public_command: str
+    #: None when the package has no test suite of its own. Substituting a
+    #: command that always succeeds would make the gate report "passed" for a
+    #: project nothing was ever run against.
+    public_command: str | None = None
     hidden_contract: Literal["validator-owned"] = "validator-owned"
     #: Hash over the sorted (path, sha256) inventory of every test file. Verified
     #: rather than merely counting files, so renaming a test to death is caught.

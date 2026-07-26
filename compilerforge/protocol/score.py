@@ -42,6 +42,12 @@ class GateResult(BaseModel):
 
     name: GateName
     passed: bool
+    #: True when the gate had nothing to check, rather than checking and being
+    #: satisfied. A package with no test suite must not produce a public_tests
+    #: result that reads identically to one whose suite ran and passed — the
+    #: reader cannot tell the difference, and the difference is the whole value
+    #: of the gate.
+    skipped: bool = False
     detail: str = ""
     #: Wall seconds the gate itself consumed, for the validator cost model.
     seconds: float = 0.0

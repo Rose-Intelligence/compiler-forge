@@ -179,7 +179,8 @@ class TaskPackage(BaseModel):
     #: Paths a patch may touch. Everything else — tests, benchmark drivers, the
     #: build definition, fuzz targets — belongs to the validator.
     patchable_paths: tuple[str, ...] = ("src/**", "include/**")
-    test_command: str
+    #: None when the package has no suite. See TestContract.public_command.
+    test_command: str | None = None
     test_inventory_globs: tuple[str, ...] = ("tests/**/*",)
 
     benchmark_command: str

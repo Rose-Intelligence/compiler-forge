@@ -394,11 +394,15 @@ def _print_result(result: LocalResult, *, json_output: bool) -> None:
     table.add_column("Result")
     table.add_column("Detail", overflow="fold")
     for gate in result.score.gates:
-        table.add_row(
-            str(gate.name),
-            "[green]pass[/green]" if gate.passed else "[red]FAIL[/red]",
-            gate.detail[:120],
-        )
+        # A gate that had nothing to check is not a gate that was satisfied.
+        # Printing both as "pass" hides the distinction the gate exists to make.
+        if gate.skipped:
+            verdict = "[yellow]skip[/yellow]"
+        elif gate.passed:
+            verdict = "[green]pass[/green]"
+        else:
+            verdict = "[red]FAIL[/red]"
+        table.add_row(str(gate.name), verdict, gate.detail[:120])
     console.print(table)
 
     if result.score.tier_a is not None:
