@@ -262,10 +262,18 @@ class RoundRunner:
                 if prior is None or artifact.score > prior[0]:
                     best_by_task[produced.task_id] = (artifact.score, produced.patch)
 
+        # Public-corpus tasks only. A patch is a window onto the repository it
+        # was written against: it carries the file paths, the surrounding source
+        # as diff context, and the shape of the inefficiency. Publishing one for
+        # a held-out package hands a miner the very thing the hidden family
+        # exists to withhold, and the generalisation signal is spent the moment
+        # it is read. Held-out packages are still scored and still aggregated —
+        # only their patches stay unpublished.
+        hidden_task_ids = {t.task.task_id for t in plan.tasks if t.hidden}
         result.accepted_patches = {
             task_id: patch
             for task_id, (_score, patch) in best_by_task.items()
-            if task_id not in result.voided_tasks
+            if task_id not in result.voided_tasks and task_id not in hidden_task_ids
         }
         return result
 
