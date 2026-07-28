@@ -1,5 +1,10 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo-white.webp" />
+  <img src="logo.webp" alt="CompilerForge" width="120" />
+</picture>
+
 # CompilerForge
 
 **Verified autonomous software performance engineering**
