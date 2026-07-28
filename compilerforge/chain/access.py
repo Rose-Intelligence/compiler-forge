@@ -15,6 +15,7 @@ returns real data or raises.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,31 @@ from compilerforge.utils.logging import logger
 #: caps a single Raw field at 512 bytes, which is comfortably above the
 #: commitment size this subnet uses.
 MAX_RAW_FIELD_BYTES = 512
+
+#: A shared endpoint throttles and drops reads under load. These are transient —
+#: the chain is fine, the connection blinked — so a read retries a few times
+#: before it is allowed to fail a round. A read whose message matches none of
+#: these (e.g. an unknown storage name) is a real error and is never retried.
+_READ_RETRIES = 4
+_RETRY_BASE_DELAY = 0.6
+_TRANSIENT_MARKERS = (
+    "no header",
+    "no block",
+    "storage work rate limit",
+    "state_getkeyspaged",
+    "rate limit",
+    "timed out",
+    "timeout",
+    "connection",
+    "temporarily",
+    "reset",
+    "closed",
+)
+
+
+def _is_transient(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_MARKERS)
 
 
 class ChainError(RuntimeError):
@@ -82,6 +108,9 @@ class ChainAccess:
     network: str = "finney"
     fallback_endpoints: tuple[str, ...] = ()
     _subtensor: Any = None
+    #: Last good commitment set, served when a transient read fails rather than
+    #: aborting the round. See ``commitments``.
+    _commitments_cache: dict[str, str] | None = None
 
     @property
     def subtensor(self) -> Any:
@@ -107,16 +136,29 @@ class ChainAccess:
     # -- reads -----------------------------------------------------------
 
     def _read(self, name: str, **params: Any) -> Any:
-        try:
-            return self.subtensor.read(name, **params)
-        except Exception as exc:  # noqa: BLE001
-            raise ChainError(f"chain read '{name}' failed: {exc}") from exc
+        last: Exception | None = None
+        for attempt in range(_READ_RETRIES):
+            try:
+                return self.subtensor.read(name, **params)
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                if attempt == _READ_RETRIES - 1 or not _is_transient(str(exc)):
+                    break
+                logger.debug("chain read '%s' blinked (%s); retry %d", name, exc, attempt + 1)
+                time.sleep(_RETRY_BASE_DELAY * (2**attempt))
+        raise ChainError(f"chain read '{name}' failed: {last}") from last
 
     def current_block(self) -> int:
-        try:
-            return int(self.subtensor.block)
-        except Exception as exc:  # noqa: BLE001
-            raise ChainError(f"cannot read the current block: {exc}") from exc
+        last: Exception | None = None
+        for attempt in range(_READ_RETRIES):
+            try:
+                return int(self.subtensor.block)
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                if attempt == _READ_RETRIES - 1 or not _is_transient(str(exc)):
+                    break
+                time.sleep(_RETRY_BASE_DELAY * (2**attempt))
+        raise ChainError(f"cannot read the current block: {last}") from last
 
     def block_hash(self, block: int) -> str:
         """The entropy that selects a round's tasks.
@@ -213,8 +255,25 @@ class ChainAccess:
         )
 
     def commitments(self) -> dict[str, str]:
-        """hotkey -> payload, for every commitment on the subnet."""
-        records = self._read("commitments", netuid=self.netuid)
+        """hotkey -> payload, for every commitment on the subnet.
+
+        The paged read behind this is the heaviest query the endpoint serves and
+        the first to be throttled. Commitments change only when a miner commits a
+        new artifact, so a transient failure serves the last good set rather than
+        aborting the round. The frozen set is then at most slightly stale, which
+        never lets a miner tune to a task — the task-selecting block hash still
+        postdates the freeze regardless of when the set was read.
+        """
+        try:
+            records = self._read("commitments", netuid=self.netuid)
+        except ChainError:
+            if self._commitments_cache is not None:
+                logger.warning(
+                    "commitments read failed; serving the last good set of %d",
+                    len(self._commitments_cache),
+                )
+                return self._commitments_cache
+            raise
         out: dict[str, str] = {}
         for record in records or []:
             hotkey = _attr(record, "hotkey")
@@ -223,6 +282,7 @@ class ChainAccess:
             data = _attr(record, "commitment") or _attr(record, "data")
             if hotkey and data:
                 out[str(hotkey)] = str(data)
+        self._commitments_cache = out
         return out
 
     def commitment_of(self, hotkey: str) -> str | None:
