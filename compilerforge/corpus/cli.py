@@ -393,14 +393,27 @@ def seal(
     package_dir: Path = typer.Argument(..., help="Task package directory"),
     hours: float = typer.Option(36.0, help="Hours until the material becomes readable"),
     count: int = typer.Option(500, help="Differential cases to generate"),
-    seed: str = typer.Option("0x0", help="Generator seed"),
+    seed: str | None = typer.Option(
+        None,
+        help="Generator seed. Omit for a fresh random secret. A fixed, public seed "
+        "lets anyone reproduce these cases from the shipped generator, which "
+        "defeats the seal — only pass one if it is secret and high-entropy.",
+    ),
 ) -> None:
     """Seal a package's hidden differential corpus with a timelock.
 
     Before the reveal round nobody can decrypt this — including whoever sealed it.
     That turns "the validator did not peek at the hidden tests" from a statement
     of trust into something a third party can check against a public beacon.
+
+    The seal is only as secret as its seed. The generator ships in the public
+    tree, so a fixed, guessable seed lets a miner regenerate these exact cases
+    without ever decrypting anything — the timelock then protects an envelope
+    whose contents are already known. The default is therefore a fresh random
+    secret, and a seal is single-use: rotate it on every corpus refresh.
     """
+    import secrets
+
     from compilerforge.chain.sealed import seal_differential_cases
     from compilerforge.evaluation.differential import generate_cases
 
@@ -409,6 +422,16 @@ def seal(
     if not generator:
         console.print("[red]This package declares no input generator.[/red]")
         raise typer.Exit(1)
+
+    if seed is None:
+        seed = "0x" + secrets.token_hex(32)
+        console.print("using a fresh random seal seed")
+    else:
+        console.print(
+            "[yellow]note:[/yellow] a fixed seed only stays hidden if it is secret and "
+            "high-entropy — a public or guessable seed lets a miner regenerate these "
+            "cases from the shipped generator without waiting for the reveal"
+        )
 
     cases = generate_cases(
         generator,

@@ -371,8 +371,19 @@ def _print_run(result: LocalResult) -> None:
 
 
 def _print_result(result: LocalResult, *, json_output: bool) -> None:
-    if json_output and result.score is not None:
-        console.print_json(result.score.model_dump_json())
+    if json_output:
+        # --json is a machine-readable contract: emit a JSON object for every
+        # outcome, never a human panel. An honest empty result (the agent found
+        # nothing safe to change) and a voided task are legitimate outcomes, not
+        # the absence of one.
+        if result.score is not None:
+            console.print_json(result.score.model_dump_json())
+        elif result.voided_reason:
+            console.print_json(json.dumps({"voided": True, "void_reason": result.voided_reason}))
+        else:
+            console.print_json(
+                json.dumps({"honest_null": True, "empty": True, "gates": [], "tier_a": None, "voided": False})
+            )
         return
 
     if result.voided_reason:

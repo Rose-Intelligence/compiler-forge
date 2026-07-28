@@ -15,6 +15,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from compilerforge.protocol.task import ResourceContract
 
@@ -98,7 +99,8 @@ class IsolationProfile:
         ):
             if not flag:
                 raise IsolationError(f"{name} may not be disabled")
-        if self.run_as_user.startswith("0:"):
+        uid = self.run_as_user.split(":", 1)[0].strip()
+        if uid in ("0", "root"):
             raise IsolationError("artifacts never run as root")
 
     def container_args(self) -> list[str]:
@@ -154,12 +156,18 @@ class IsolationProfile:
         )
 
     def assert_mounts_safe(self, mounts: dict[str, str]) -> None:
-        forbidden = self.forbidden_mounts()
+        forbidden = tuple(str(Path(b).expanduser()).rstrip("/") for b in self.forbidden_mounts())
+
+        def hits(candidate: str) -> bool:
+            return any(candidate == bad or candidate.startswith(bad + "/") for bad in forbidden)
+
         for host_path in mounts:
-            expanded = host_path.rstrip("/")
-            for bad in forbidden:
-                if expanded == bad.rstrip("/") or expanded.startswith(bad.rstrip("/") + "/"):
-                    raise IsolationError(f"refusing to mount {host_path} into an artifact")
+            expanded = str(Path(host_path).expanduser()).rstrip("/")
+            # Resolve symlinks as well, so a link that points at a forbidden path
+            # cannot smuggle it in under an innocent-looking name.
+            resolved = str(Path(host_path).expanduser().resolve()).rstrip("/")
+            if hits(expanded) or hits(resolved):
+                raise IsolationError(f"refusing to mount {host_path} into an artifact")
 
 
 def default_profile(
