@@ -120,14 +120,31 @@ class BaseValidatorNeuron(BaseNeuron):
         they are independent scoring games — but every failure is logged with its
         chain-side reason, and only vectors that actually landed are remembered
         for the heartbeat to re-assert.
+
+        A mechanism the subnet has not created yet is skipped rather than
+        attempted: the two-mechanism design is the target, but the specialist
+        lane only exists on chain once the owner raises ``mechanism_count``. Until
+        then, submitting to it is rejected every round, so its scored weight is
+        held back rather than logged as a failure. When the lane would carry
+        weight but cannot, that is surfaced once so the withheld work is visible.
         """
         results: dict[int, bool] = {}
         landed: dict[int, dict[str, float]] = {}
+
+        available = self.chain.mechanism_count()
 
         for mechid, weights in (
             (Mechanism.GENERALIST, generalist),
             (Mechanism.SPECIALIST_AND_BOUNTY, specialist),
         ):
+            if mechid >= available:
+                if weights:
+                    logger.warning(
+                        f"Mechanism {mechid} is not created on this subnet "
+                        f"(count={available}); withholding {len(weights)} scored "
+                        "weights until the owner raises the mechanism count"
+                    )
+                continue
             try:
                 results[mechid] = self.set_weights_for_mechanism(weights, mechid)
             except ChainError as exc:

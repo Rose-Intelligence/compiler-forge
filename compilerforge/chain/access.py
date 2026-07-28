@@ -301,6 +301,23 @@ class ChainAccess:
     def commit_reveal_enabled(self) -> bool:
         return bool(self._read("commit_reveal_enabled", netuid=self.netuid))
 
+    def mechanism_count(self) -> int:
+        """How many mechanisms the subnet actually runs right now.
+
+        The scoring code is written for the two-mechanism design (generalist +
+        specialist/bounty), but a subnet is created with one mechanism and the
+        second only exists once the owner raises the count. Submitting weights to
+        a mechanism the chain does not have is rejected every round with
+        "Subnet mechanism does not exist"; the validator reads this instead and
+        skips the absent lanes, so the logs report only what was really attempted.
+        """
+        try:
+            return max(1, int(self._read("mechanism_count", netuid=self.netuid)))
+        except ChainError:
+            # A blip reading the count must not drop the generalist lane, which
+            # always exists; fall back to the single mechanism every subnet has.
+            return 1
+
     # -- writes ----------------------------------------------------------
 
     def _execute(self, intent: Any, wallet: Any, *, what: str) -> Any:
