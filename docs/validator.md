@@ -178,6 +178,7 @@ Key arguments:
 | `--neuron.hidden_tasks` | 3 | Held-out generalisation tasks. At least one is required |
 | `--neuron.freeze_lead_blocks` | 300 | Blocks between freezing artifacts and drawing the selecting hash |
 | `--neuron.heartbeat_blocks` | 900 | Weight heartbeat interval. **Not optional** — see below |
+| `--neuron.full_production` | off | Score every agent locally instead of this validator's share of the split. See below |
 | `--measurement.tier_b` | off | Enable wall-clock. Requires a calibrated host |
 | `--measurement.fuzz_seconds` | 300 | Fuzzing budget per candidate |
 
@@ -226,6 +227,14 @@ and where cost is low.
 A sample of pairs is re-executed each round by a different producer under the same
 seed. A producer whose published patch cannot be reproduced loses eligibility and
 its stake weight is challenged.
+
+The split assumes the validator set holds comparable stake, so Yuma merges each
+validator's partial weight vector fairly. When one validator holds most of the
+stake — a small or early network — its partial vector alone decides emission, and
+any agent whose pairs were assigned elsewhere is scored on a vote that barely
+counts. Set `--neuron.full_production` on such a validator to score every agent
+locally and publish a complete vector; on a small agent set the extra compute is
+cheap.
 
 ---
 
@@ -280,7 +289,7 @@ correcting it.
 ## Cost control
 
 A naive implementation re-runs everything for everyone and is economically
-absurd. Four mechanisms keep a round affordable, and all four are load-bearing.
+absurd. Four techniques keep a round affordable, and all four are load-bearing.
 
 **Staged gates.** Cheap correctness gates run first; expensive measurement only
 for survivors. Roughly a 1,000 → 400 → 100 funnel over a full round.
@@ -558,7 +567,6 @@ Waiting <k> blocks for the task-selecting hash
 2 public + 1 hidden tasks from block <N+20>
 Producing 3 of 3 assigned pairs
 Set weights for 1 uids on mechanism 0
-Set weights for 1 uids on mechanism 1
 Published audit bundle sha256:...
 ```
 
@@ -816,6 +824,13 @@ btcli tx set-mechanism-count --netuid <netuid> --count 2 -w cf_owner
 #   mechanism 0 : Generalist Agent Championship   = 39321   (60%)
 #   mechanism 1 : Specialist cells + bounty lane  = 26214   (40%)
 ```
+
+A subnet is created with one mechanism; the second exists only after this call.
+Until it does, a validator reads the live mechanism count and folds the
+specialist/bounty vector into mechanism 0, scaled by its emission share, so a
+miner whose value is specialisation still earns rather than having its scored
+weight silently discarded. Once the second mechanism is created the two vectors
+separate again with no validator change.
 
 ### Owner discipline
 

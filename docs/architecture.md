@@ -274,7 +274,9 @@ you can check.
 
 **Two mechanisms.** `set_weights(..., mechid=N)` targets the generalist
 championship and the specialist/bounty lane separately. Each runs Yuma Consensus
-independently with its own weight matrix and bond pools.
+independently with its own weight matrix and bond pools. Before the owner raises
+the mechanism count, the second lane does not exist on chain, and the validator
+folds its vector into mechanism 0 so specialist work still earns.
 
 **Commit-reveal.** A chain hyperparameter, not a call flag. With it enabled the
 SDK performs the commit and the later reveal itself; nothing here reimplements it.
