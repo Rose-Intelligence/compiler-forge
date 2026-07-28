@@ -28,7 +28,12 @@ from pathlib import Path
 from compilerforge.base.neuron import BaseNeuron
 from compilerforge.chain.access import ChainError
 from compilerforge.scoring.dethronement import Champion
-from compilerforge.scoring.emissions import EmissionAllocator, Mechanism, ReliabilityRecord
+from compilerforge.scoring.emissions import (
+    EmissionAllocator,
+    Mechanism,
+    ReliabilityRecord,
+    mechanism_split,
+)
 from compilerforge.utils.config import NeuronConfig, add_validator_args
 from compilerforge.utils.logging import logger
 
@@ -114,37 +119,61 @@ class BaseValidatorNeuron(BaseNeuron):
     def submit_round_weights(
         self, generalist: dict[str, float], specialist: dict[str, float]
     ) -> dict[int, bool]:
-        """Submit both mechanisms and remember what was sent, for the heartbeat.
+        """Submit each mechanism's weight vector, folding lanes the subnet cannot pay.
 
-        One mechanism failing does not prevent the other from being submitted —
-        they are independent scoring games — but every failure is logged with its
-        chain-side reason, and only vectors that actually landed are remembered
-        for the heartbeat to re-assert.
+        The two-mechanism design runs the generalist championship and the
+        specialist/bounty lane as separate on-chain scoring games. A subnet starts
+        with one mechanism, though, and the second exists only once the owner
+        raises ``mechanism_count``. Discarding the specialist/bounty vector while
+        that lane has nowhere to land would pay nothing to a miner whose value is
+        specialisation — a miner that is scored, and wins its cells, yet earns
+        zero. Instead its vector is folded into mechanism 0, each lane scaled by
+        its designed share of total emission, so every scored miner earns from the
+        one mechanism that exists while the intended generalist/specialist emphasis
+        is preserved. Once the lane is created the two vectors separate again with
+        no change here.
 
-        A mechanism the subnet has not created yet is skipped rather than
-        attempted: the two-mechanism design is the target, but the specialist
-        lane only exists on chain once the owner raises ``mechanism_count``. Until
-        then, submitting to it is rejected every round, so its scored weight is
-        held back rather than logged as a failure. When the lane would carry
-        weight but cannot, that is surfaced once so the withheld work is visible.
+        One mechanism failing does not prevent the other from being submitted, and
+        only vectors the chain accepted are remembered for the heartbeat to
+        re-assert; heart-beating a rejected vector would repeat the failure in
+        silence.
         """
         results: dict[int, bool] = {}
         landed: dict[int, dict[str, float]] = {}
 
         available = self.chain.mechanism_count()
+        split = mechanism_split()
+        total = sum(split.values()) or 1
 
+        # Build the vector actually submitted per existing mechanism. A lane whose
+        # mechanism the chain has not created is merged into mechanism 0; each lane
+        # is scaled by its share of total emission so the merge keeps the designed
+        # emphasis. For a lane submitted on its own the scale washes out when
+        # set_weights normalises, so this changes nothing until a fold happens.
+        to_submit: dict[int, dict[str, float]] = {}
+        folded: list[int] = []
         for mechid, weights in (
             (Mechanism.GENERALIST, generalist),
             (Mechanism.SPECIALIST_AND_BOUNTY, specialist),
         ):
-            if mechid >= available:
-                if weights:
-                    logger.warning(
-                        f"Mechanism {mechid} is not created on this subnet "
-                        f"(count={available}); withholding {len(weights)} scored "
-                        "weights until the owner raises the mechanism count"
-                    )
+            if not weights:
                 continue
+            target = mechid if mechid < available else Mechanism.GENERALIST
+            if target != mechid:
+                folded.append(mechid)
+            scale = split.get(mechid, 0) / total
+            bucket = to_submit.setdefault(target, {})
+            for hotkey, weight in weights.items():
+                bucket[hotkey] = bucket.get(hotkey, 0.0) + scale * weight
+
+        if folded:
+            logger.info(
+                f"Subnet runs {available} mechanism(s); folded lane(s) {folded} into "
+                f"mechanism 0 by emission share — {len(to_submit.get(Mechanism.GENERALIST, {}))} "
+                "miners weighted on the one mechanism that exists"
+            )
+
+        for mechid, weights in sorted(to_submit.items()):
             try:
                 results[mechid] = self.set_weights_for_mechanism(weights, mechid)
             except ChainError as exc:
