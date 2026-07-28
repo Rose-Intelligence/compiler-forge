@@ -19,9 +19,16 @@ from datetime import datetime
 from compilerforge.chain.access import ChainError, MetagraphSnapshot
 from compilerforge.chain.audit import AuditRepository, RoundBundle
 from compilerforge.chain.commitments import FrozenArtifact, earliest_commitment_times
+from compilerforge.chain.sealed import (
+    SealedEnvelope,
+    SealError,
+    TimelockNotReady,
+    open_differential_cases,
+)
 from compilerforge.corpus.package import Corpus
 from compilerforge.evaluation.build import toolchain_digest
-from compilerforge.evaluation.selection import RoundSeed, SelectionError, derive_round
+from compilerforge.evaluation.differential import DifferentialCase
+from compilerforge.evaluation.selection import RoundPlan, RoundSeed, SelectionError, derive_round
 from compilerforge.protocol.commitment import ArtifactCommitment
 from compilerforge.sandbox.runner import ArtifactError, ArtifactRunner
 from compilerforge.spec import SPEC
@@ -114,9 +121,19 @@ async def forward(self) -> RoundBundle | None:
     logger.info(f"Producing {len(mine)} of {len(assignments)} assigned pairs")
     patches = await produce_patches(self, mine, plan, artifacts)
 
+    # -- open the sealed hidden inputs, now that the artifact set is frozen ----
+    # The ciphertext for each package was public before the freeze; only after its
+    # reveal round — which is chosen to postdate the freeze — can anyone, this
+    # validator included, open it. A package still under its timelock, or with no
+    # sealed corpus, falls back to the seeded generator inside the runner, so a
+    # not-yet-revealable seal never fails a miner.
+    sealed_cases = _open_sealed_cases(plan)
+
     # -- verification everywhere --------------------------------------
     runner = RoundRunner(ctx=self.evaluation_context(corpus), workdir=self.workdir / "rounds")
-    result = runner.verify(plan, patches, round_number=self.round_number)
+    result = runner.verify(
+        plan, patches, sealed_cases=sealed_cases, round_number=self.round_number
+    )
 
     for challenge in result.challenges:
         logger.error(f"Reproduction challenge: {challenge.detail}")
@@ -178,6 +195,31 @@ async def forward(self) -> RoundBundle | None:
     AuditRepository(root=self.audit_dir).publish(bundle)
     logger.info(f"Published audit bundle {bundle.bundle_hash()[:26]}")
     return bundle
+
+
+def _open_sealed_cases(plan: RoundPlan) -> dict[str, list[DifferentialCase]]:
+    """Open each task's ``inputs/hidden.sealed`` into differential cases.
+
+    Called only after the artifact freeze. A package with no sealed corpus, or one
+    whose reveal round has not arrived, is simply left out — the runner then falls
+    back to that package's seeded generator, or voids the task, and a not-yet-
+    revealable seal never fails a miner.
+    """
+    sealed: dict[str, list[DifferentialCase]] = {}
+    for selected in plan.tasks:
+        path = selected.package.root / "inputs" / "hidden.sealed"
+        if not path.is_file():
+            continue
+        try:
+            sealed[selected.task.task_id] = open_differential_cases(SealedEnvelope.read(path))
+        except TimelockNotReady:
+            logger.info(
+                f"sealed corpus for {selected.package_id} is not revealable yet; the round "
+                "falls back to the seeded generator if the package has one"
+            )
+        except SealError as exc:
+            logger.warning(f"could not open sealed corpus for {selected.package_id}: {exc}")
+    return sealed
 
 
 def freeze_artifacts(snapshot: MetagraphSnapshot) -> list[FrozenArtifact]:

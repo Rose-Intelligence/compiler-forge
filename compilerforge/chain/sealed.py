@@ -163,6 +163,28 @@ def seal_differential_cases(
     return seal_for_hours(json.dumps(payload).encode(), label=label, hours=hours)
 
 
+def open_differential_cases(
+    envelope: SealedEnvelope, *, wait: bool = False
+) -> list[DifferentialCase]:
+    """Open a sealed differential corpus back into cases — the inverse of
+    ``seal_differential_cases``.
+
+    Raises :class:`TimelockNotReady` before the reveal round, which the round loop
+    treats as "this package cannot be differentially tested from its sealed corpus
+    yet" and falls back to the seeded generator rather than failing the miner.
+    """
+    payload = json.loads(open_envelope(envelope, wait=wait))
+    return [
+        DifferentialCase(
+            case_id=c["case_id"],
+            argv=tuple(c.get("argv", ())),
+            stdin=bytes.fromhex(c["stdin_hex"]) if c.get("stdin_hex") else b"",
+            files={k: bytes.fromhex(v) for k, v in (c.get("files_hex") or {}).items()} or None,
+        )
+        for c in payload.get("cases", [])
+    ]
+
+
 def wait_and_open(envelope: SealedEnvelope) -> bytes:
     """Block until the reveal round, then decrypt.
 
