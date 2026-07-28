@@ -71,6 +71,8 @@ class ArtifactRunner:
     container_cli: str = "docker"
     #: Loopback address of the validator-owned inference proxy, when configured.
     proxy_url: str | None = None
+    #: Development-only: permit a shared-kernel runtime for authoritative phases.
+    allow_unhardened: bool = False
     _pulled: set[str] = field(default_factory=set)
 
     async def pull(self, commitment: ArtifactCommitment) -> None:
@@ -134,7 +136,7 @@ class ArtifactRunner:
             wall_seconds=task.benchmark.max_wall_seconds,
             network=network,
         )
-        prof.assert_safe()
+        prof.assert_safe(allow_unhardened=self.allow_unhardened)
 
         mounts = {
             str(repo_dir): "/workspace/repo",

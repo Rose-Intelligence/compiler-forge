@@ -72,15 +72,21 @@ class IsolationProfile:
     #: 1 GiB. A fork bomb is cheap; so is capping the file size it can write.
     max_file_size_bytes: int = 1024**3
 
-    def assert_safe(self) -> None:
-        """Fail closed on any configuration that breaks the security boundary."""
+    def assert_safe(self, *, allow_unhardened: bool = False) -> None:
+        """Fail closed on any configuration that breaks the security boundary.
+
+        ``allow_unhardened`` is a development-only override (the operator passed
+        ``--sandbox.allow_unhardened_runtime``) that permits a shared-kernel
+        runtime for the authoritative phases. It is unsafe against untrusted
+        miner code and must never be set on a public validator.
+        """
         if self.phase.is_authoritative:
             if self.network is NetworkMode.MIRROR:
                 raise IsolationError(
                     "package mirrors are a preparation-phase affordance; the authoritative "
                     "phases run with no external network"
                 )
-            if not self.runtime.is_hardened:
+            if not self.runtime.is_hardened and not allow_unhardened:
                 raise IsolationError(
                     f"runtime {self.runtime} shares the host kernel; authoritative phases "
                     "require gVisor or a microVM (sandbox escape)"

@@ -106,7 +106,10 @@ async def forward(self) -> RoundBundle | None:
     )
 
     # -- production once ----------------------------------------------
-    assignments = assign_producers(plan, artifacts)
+    # Distribute production across the permitted validators; fall back to this
+    # neuron so a single-validator network still produces every pair.
+    validator_uids = sorted(n.uid for n in snapshot.neurons if n.validator_permit) or [self.uid]
+    assignments = assign_producers(plan, artifacts, validator_uids)
     mine = [a for a in assignments if a.producer_uid == self.uid]
     logger.info(f"Producing {len(mine)} of {len(assignments)} assigned pairs")
     patches = await produce_patches(self, mine, plan, artifacts)
@@ -221,6 +224,7 @@ async def produce_patches(self, assignments, plan, artifacts) -> list[ProducedPa
         workdir=self.workdir / "artifacts",
         container_cli=self.config.sandbox.container_cli,
         proxy_url=self.config.sandbox.inference_proxy_url,
+        allow_unhardened=self.config.sandbox.allow_unhardened_runtime,
     )
     by_digest = {a.digest: a for a in artifacts}
     by_task = {t.task.task_id: t for t in plan.tasks}

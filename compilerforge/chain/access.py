@@ -145,26 +145,65 @@ class ChainAccess:
             raise ChainError(f"netuid {self.netuid} returned no metagraph")
 
         neurons: list[NeuronRecord] = []
-        for entry in _attr(raw, "neurons") or []:
-            neurons.append(
-                NeuronRecord(
-                    uid=int(_attr(entry, "uid") or 0),
-                    hotkey=str(_attr(entry, "hotkey") or ""),
-                    coldkey=str(_attr(entry, "coldkey") or ""),
-                    stake=_as_float(_attr(entry, "total_stake")),
-                    validator_permit=bool(_attr(entry, "validator_permit")),
-                    last_update=int(_attr(entry, "last_update") or 0),
-                    incentive=_as_float(_attr(entry, "incentive")),
-                    emission=_as_float(_attr(entry, "emission")),
+        entries = _attr(raw, "neurons")
+        if entries:
+            # A per-neuron object/row shape.
+            for entry in entries:
+                neurons.append(
+                    NeuronRecord(
+                        uid=int(_attr(entry, "uid") or 0),
+                        hotkey=str(_attr(entry, "hotkey") or ""),
+                        coldkey=str(_attr(entry, "coldkey") or ""),
+                        stake=_as_float(_attr(entry, "total_stake")),
+                        validator_permit=bool(_attr(entry, "validator_permit")),
+                        last_update=int(_attr(entry, "last_update") or 0),
+                        incentive=_as_float(_attr(entry, "incentive")),
+                        emission=_as_float(_attr(entry, "emission")),
+                    )
                 )
-            )
+        else:
+            # Bittensor 11's ``metagraph`` read returns parallel column arrays
+            # (hotkeys[], validator_permit[], total_stake[], ...) rather than a
+            # ``neurons`` list. The uid is the array index. ``incentives`` is the
+            # plural key here.
+            hotkeys = _attr(raw, "hotkeys") or []
+            coldkeys = _attr(raw, "coldkeys") or []
+            permits = _attr(raw, "validator_permit") or []
+            stakes = _attr(raw, "total_stake") or []
+            updates = _attr(raw, "last_update") or []
+            incentives = _attr(raw, "incentives") or _attr(raw, "incentive") or []
+            emissions = _attr(raw, "emission") or []
 
+            def _at(seq: Any, i: int, default: Any = None) -> Any:
+                return seq[i] if i < len(seq) else default
+
+            for uid in range(len(hotkeys)):
+                neurons.append(
+                    NeuronRecord(
+                        uid=uid,
+                        hotkey=str(_at(hotkeys, uid) or ""),
+                        coldkey=str(_at(coldkeys, uid) or ""),
+                        stake=_as_float(_at(stakes, uid)),
+                        validator_permit=bool(_at(permits, uid)),
+                        last_update=int(_at(updates, uid) or 0),
+                        incentive=_as_float(_at(incentives, uid)),
+                        emission=_as_float(_at(emissions, uid)),
+                    )
+                )
+
+        # Bittensor 11's ``metagraph`` read does not carry commitments, so fetch
+        # them with a second read and attach — callers expect the artifact set
+        # and the neuron table to come back together.
         commitments: dict[str, str] = {}
-        for record in (_attr(raw, "commitments") or {}).values():
-            hotkey = _attr(record, "hotkey")
-            data = _attr(record, "data")
-            if hotkey and data:
-                commitments[str(hotkey)] = str(data)
+        carried = _attr(raw, "commitments")
+        if carried:
+            for record in carried.values():
+                hotkey = _attr(record, "hotkey")
+                data = _attr(record, "commitment") or _attr(record, "data")
+                if hotkey and data:
+                    commitments[str(hotkey)] = str(data)
+        else:
+            commitments = self.commitments()
 
         return MetagraphSnapshot(
             netuid=self.netuid,
@@ -179,7 +218,9 @@ class ChainAccess:
         out: dict[str, str] = {}
         for record in records or []:
             hotkey = _attr(record, "hotkey")
-            data = _attr(record, "data")
+            # Bittensor 11 names the payload ``commitment``; older reads used
+            # ``data``. Accept either.
+            data = _attr(record, "commitment") or _attr(record, "data")
             if hotkey and data:
                 out[str(hotkey)] = str(data)
         return out
@@ -188,7 +229,7 @@ class ChainAccess:
         record = self._read("commitment", netuid=self.netuid, hotkey_ss58=hotkey)
         if record is None:
             return None
-        data = _attr(record, "data")
+        data = _attr(record, "commitment") or _attr(record, "data")
         return str(data) if data else None
 
     def hyperparameters(self) -> dict[str, Any]:
@@ -264,15 +305,26 @@ class ChainAccess:
         if len(data) > MAX_RAW_FIELD_BYTES:
             raise ChainError(
                 f"commitment payload is {len(data)} bytes, above the "
-                f"{MAX_RAW_FIELD_BYTES}-byte single-field limit"
+                f"{MAX_RAW_FIELD_BYTES}-byte limit"
             )
+
+        # The commitment ``Data`` enum only defines Raw0..Raw128, so a payload
+        # larger than 128 bytes must be split across several Raw fields. The read
+        # side receives them already concatenated back into one ``data`` string.
+        chunk = 128
+        fields = [
+            {f"Raw{len(data[i : i + chunk])}": "0x" + data[i : i + chunk].hex()}
+            for i in range(0, len(data), chunk)
+        ] or [{"Raw0": "0x"}]
 
         call = bt.calls.Commitments.set_commitment(
             netuid=self.netuid,
-            info={"fields": [[{f"Raw{len(data)}": "0x" + data.hex()}]]},
+            info={"fields": [fields]},
         )
         try:
-            result = self.subtensor.submit_call(call, wallet)
+            # A commitment is made by the registered hotkey, not the coldkey; the
+            # pallet rejects a coldkey signer with "not allowed to make commitments".
+            result = self.subtensor.submit_call(call, wallet, signer="hotkey")
         except Exception as exc:  # noqa: BLE001
             raise ChainError(f"set_commitment failed to submit: {exc}") from exc
 

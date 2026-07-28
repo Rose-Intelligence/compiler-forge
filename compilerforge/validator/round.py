@@ -56,6 +56,7 @@ class ProducerAssignment:
 def assign_producers(
     plan: RoundPlan,
     artifacts: list[FrozenArtifact],
+    validator_uids: list[int],
     *,
     audit_fraction: float = 0.05,
 ) -> list[ProducerAssignment]:
@@ -67,7 +68,10 @@ def assign_producers(
     if not artifacts:
         return []
 
-    uids = sorted({a.uid for a in artifacts})
+    # Production is distributed across the VALIDATOR set (the neurons that run
+    # agents), not the artifacts' own miner uids. Fall back to any uid present so
+    # a single-validator network still produces every pair.
+    uids = sorted(set(validator_uids)) or sorted({a.uid for a in artifacts})
     assignments: list[ProducerAssignment] = []
 
     for task in plan.tasks:

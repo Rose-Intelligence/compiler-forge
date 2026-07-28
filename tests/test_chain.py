@@ -167,8 +167,10 @@ class _FakeSubtensor:
             raise self._execute
         return self._execute
 
-    def submit_call(self, call, wallet):
-        self.submitted.append((call, wallet))
+    def submit_call(self, call, wallet, signer=None):
+        # A commitment is signed by the hotkey, not the coldkey; the signer is
+        # recorded so the test can assert it rather than trust it.
+        self.submitted.append((call, wallet, signer))
         if isinstance(self._submit, Exception):
             raise self._submit
         return self._submit
@@ -255,7 +257,7 @@ def test_a_mismatched_weight_vector_is_refused():
 
 def test_an_oversized_commitment_is_refused_before_submission():
     access = _access(submit=_Result(True))
-    with pytest.raises(ChainError, match="single-field limit"):
+    with pytest.raises(ChainError, match="limit"):
         access.set_commitment(object(), "x" * 600)
     assert not access._subtensor.submitted
 
@@ -263,8 +265,11 @@ def test_an_oversized_commitment_is_refused_before_submission():
 def test_a_commitment_is_submitted_as_raw_fields():
     access = _access(submit=_Result(True))
     access.set_commitment(object(), "hello")
-    call, _wallet = access._subtensor.submitted[0]
+    call, _wallet, signer = access._subtensor.submitted[0]
     assert call is not None
+    # The commitment must be signed by the hotkey; a coldkey signer is rejected
+    # by the pallet with "not allowed to make commitments".
+    assert signer == "hotkey"
 
 
 def test_a_rejected_commitment_raises():
