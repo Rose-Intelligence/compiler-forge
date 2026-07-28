@@ -11,8 +11,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from compilerforge.protocol.score import TierAResult, TierBResult
-from compilerforge.scoring.aggregate import ArtifactAggregate, TaskOutcome
+from compilerforge.protocol.score import (
+    ReferenceResult,
+    ScoreArtifact,
+    TierAResult,
+    TierBResult,
+)
+from compilerforge.scoring.aggregate import ArtifactAggregate, RoundAggregator, TaskOutcome
 from compilerforge.scoring.capture import (
     compute_capture,
     cross_validator_agreement_score,
@@ -411,3 +416,77 @@ def test_emergency_burn_is_disabled_by_default():
         allocator.emergency_burn(
             share=0.5, reason="test", owner_hotkey="hk-owner", round_number=1
         )
+
+
+# ---------------------------------------------------------------------------
+# coverage normalisation (spec v2): the generalist score is over the whole
+# round, so attempting a single favourable task can no longer reach the ceiling
+# ---------------------------------------------------------------------------
+
+
+def _scored_artifact(digest: str, task_id: str, capture: float, *, hotkey: str = "v1"):
+    return ScoreArtifact(
+        artifact_digest=digest,
+        task_id=task_id,
+        toolchain_digest="tc",
+        corpus_snapshot="cs",
+        verifier_hotkey=hotkey,
+        tier_a=TierAResult(
+            instructions_baseline=1_000_000,
+            instructions_candidate=800_000,
+            deterministic_speedup=1.25,
+            speedup_lcb=1.25,
+        ),
+        reference=ReferenceResult(s_ref=2.0, capture=capture),
+        score=0.5,
+        gates=[],
+    )
+
+
+def _round(tasks: list[str]) -> RoundAggregator:
+    agg = RoundAggregator(spec_digest=SPEC.digest())
+    for t in tasks:
+        agg.register_task(task_id=t, package_id="pkg", family="parsing", hidden=False)
+    return agg
+
+
+def test_a_single_task_cannot_reach_the_generalist_ceiling():
+    """The core anti-gaming property: capture is capped per task at c_max, but the
+    generalist score is a geometric mean over the *whole* round, so one maxed task
+    among many cannot lift the aggregate to the ceiling — the seat of the old
+    'first lucky champion is undethronable' defect."""
+    tasks = [f"task-{i}" for i in range(6)]
+    agg = _round(tasks)
+    agg.add(_scored_artifact("sha256:cherry", "task-0", capture=SPEC.capture.c_max))
+
+    cherry = agg.aggregate()["sha256:cherry"]
+    # Scored across all six tasks, not just the one attempted.
+    assert len(cherry.outcomes) == len(tasks)
+    assert cherry.generalist_score < SPEC.capture.c_max
+    # The five unattempted tasks are real misses, not invisible.
+    assert cherry.gate_pass_rate == pytest.approx(1 / 6)
+
+
+def test_broad_coverage_beats_one_lucky_task():
+    tasks = [f"task-{i}" for i in range(6)]
+    agg = _round(tasks)
+    agg.add(_scored_artifact("sha256:cherry", "task-0", capture=SPEC.capture.c_max))
+    for t in tasks:
+        agg.add(_scored_artifact("sha256:general", t, capture=0.6))
+
+    result = agg.aggregate()
+    assert result["sha256:general"].generalist_score > result["sha256:cherry"].generalist_score
+
+
+def test_a_voided_task_is_excluded_from_the_coverage_denominator():
+    """A task nobody could be fairly scored on must not count against an artifact
+    that legitimately covered every other task."""
+    tasks = [f"task-{i}" for i in range(4)]
+    agg = _round(tasks)
+    for t in tasks[:-1]:  # covers 3 of 4
+        agg.add(_scored_artifact("sha256:general", t, capture=1.0))
+    agg.void_task(tasks[-1])  # the 4th is voided for everyone
+
+    general = agg.aggregate()["sha256:general"]
+    assert len(general.outcomes) == 3  # the voided task is gone, not a zero
+    assert general.generalist_score == pytest.approx(1.0)

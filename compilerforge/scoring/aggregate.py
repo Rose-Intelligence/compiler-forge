@@ -114,6 +114,9 @@ class RoundAggregator:
     #: (artifact_digest, task_id) -> artifacts from every validator seen
     _by_pair: dict[tuple[str, str], list[ScoreArtifact]] = field(default_factory=dict)
     _task_meta: dict[str, tuple[str, str, bool]] = field(default_factory=dict)
+    #: Tasks voided this round. Excluded from the coverage denominator so a task
+    #: nobody could be fairly scored on never counts against anyone.
+    _voided: set[str] = field(default_factory=set)
 
     def register_task(self, task_id: str, package_id: str, family: str, hidden: bool) -> None:
         self._task_meta[task_id] = (package_id, family, hidden)
@@ -131,6 +134,7 @@ class RoundAggregator:
 
     def void_task(self, task_id: str) -> None:
         """Drop a task for every artifact. No crown change on a voided round."""
+        self._voided.add(task_id)
         for key in [k for k in self._by_pair if k[1] == task_id]:
             del self._by_pair[key]
 
@@ -176,7 +180,43 @@ class RoundAggregator:
                 )
             )
 
+        # Coverage normalisation. The generalist crown is a claim about breadth,
+        # so an artifact is scored across the *whole* round, not only the tasks it
+        # chose to attempt. Every registered, non-voided task an artifact did not
+        # clear — no patch produced, or a patch that failed a gate — enters as
+        # capture 0. Without this, an artifact that attempts one favourable task
+        # reaches the 2.0 ceiling on a single result: unearned, and because that
+        # ceiling is the dethronement reference point, permanently undethronable.
+        # A task nobody could be fairly scored on is voided and never counts.
+        active = [
+            (task_id, meta)
+            for task_id, meta in sorted(self._task_meta.items())
+            if task_id not in self._voided
+        ]
+        for outcomes in by_artifact.values():
+            attempted = {o.task_id for o in outcomes}
+            for task_id, (package_id, family, hidden) in active:
+                if task_id in attempted:
+                    continue
+                outcomes.append(
+                    TaskOutcome(
+                        task_id=task_id,
+                        package_id=package_id,
+                        family=family,
+                        hidden=hidden,
+                        capture=0.0,
+                        score=0.0,
+                        verifier_count=0,
+                        agreement=0.0,
+                        honest_null=False,
+                        gates_passed=False,
+                    )
+                )
+
         return {
-            digest: ArtifactAggregate(artifact_digest=digest, outcomes=tuple(outcomes))
+            digest: ArtifactAggregate(
+                artifact_digest=digest,
+                outcomes=tuple(sorted(outcomes, key=lambda o: o.task_id)),
+            )
             for digest, outcomes in sorted(by_artifact.items())
         }

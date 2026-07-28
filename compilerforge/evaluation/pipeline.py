@@ -413,19 +413,51 @@ class Evaluator:
         if not self.ctx.tier_b_available or self.ctx.tier_b is None:
             return None
 
-        try:
-            base_dist, cand_dist, drift = self.ctx.tier_b.measure_pair(
-                task.benchmark.command,
-                task.benchmark.command,
-                baseline_cwd=base_ws.root,
-                candidate_cwd=cand_ws.root,
-                seed=int(task.seed, 16) & 0xFFFFFFFF,
-            )
-        except MeasurementError as exc:
-            logger.warning("Tier B unavailable for %s: %s", task.task_id, exc)
-            return None
-
         from compilerforge.evaluation.baseline import measure_peak_rss
+
+        # Re-measure a confident sign disagreement before acting on it: 2.7%
+        # wall-clock CV means a single flipped sign is frequently noise. The
+        # gate's power is to *contradict* — Tier A says faster, a calibrated host
+        # says confidently slower — and only *persistent* divergence across the
+        # allowed reruns is the adversarial signal (an instruction-count win that
+        # destroys memory-level parallelism). That voids the task rather than
+        # letting a fake speedup into the weight vector. The check is written to
+        # return ``should_void`` only on the final attempt, so the loop must
+        # actually reach it — a single call at attempt 0 never can.
+        base_dist = cand_dist = None
+        drift = False
+        agreement = None
+        for attempt in range(SPEC.measurement.sign_agreement_reruns + 1):
+            try:
+                base_dist, cand_dist, drift = self.ctx.tier_b.measure_pair(
+                    task.benchmark.command,
+                    task.benchmark.command,
+                    baseline_cwd=base_ws.root,
+                    candidate_cwd=cand_ws.root,
+                    seed=int(task.seed, 16) & 0xFFFFFFFF,
+                )
+            except MeasurementError as exc:
+                logger.warning("Tier B unavailable for %s: %s", task.task_id, exc)
+                return None
+
+            if drift:
+                # A drifted reading can trust neither the sign check nor the
+                # reported wall-clock, so it is discarded rather than corrected.
+                # Tier A is unaffected and still scores. Drift is host noise, not
+                # a candidate defect, so it never voids.
+                logger.warning(
+                    "thermal drift on the calibrated host; Tier B discarded for %s", task.task_id
+                )
+                return None
+
+            agreement = check_sign_agreement(tier_a, base_dist, cand_dist, attempt=attempt)
+            if agreement.should_void:
+                raise TaskVoided(agreement.detail)
+            if not agreement.should_rerun:
+                break
+            logger.info(
+                "Tier B sign disagreement on %s; re-measuring — %s", task.task_id, agreement.detail
+            )
 
         result = self.ctx.tier_b.compare(
             base_dist,
@@ -436,16 +468,6 @@ class Evaluator:
             compile_seconds_baseline=baseline.compile_seconds if baseline else None,
             compile_seconds_candidate=build.compile_seconds,
         )
-
-        agreement = check_sign_agreement(tier_a, base_dist, cand_dist)
-        if agreement.should_void:
-            raise TaskVoided(agreement.detail)
-        if drift:
-            # The window is rejected rather than corrected. Tier A
-            # is unaffected, so the candidate still scores.
-            logger.warning("thermal drift on the calibrated host; Tier B discarded")
-            return result.model_copy(update={"sign_agreement": agreement.agreed})
-
         return result.model_copy(update={"sign_agreement": agreement.agreed})
 
     # -- bookkeeping -----------------------------------------------------

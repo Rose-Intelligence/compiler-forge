@@ -429,7 +429,10 @@ subjective positive points. A subjective positive component is an attack surface
 ## Cross-task aggregation
 
 Aggregated in log space: the geometric mean of `1 + capture` across every task in
-the round.
+the round — not only the tasks an artifact attempted. A task it did not clear (no
+patch produced, or a patch that failed a gate) enters as capture zero; a task
+voided for everyone is excluded. The generalist crown is therefore a claim about
+breadth, and a single favourable task cannot reach — and freeze — the ceiling.
 
 This is why one enormous win cannot mask repeated failures. Four tasks at 0.5
 capture beat one at 2.0 and three at zero — verified in the test suite.

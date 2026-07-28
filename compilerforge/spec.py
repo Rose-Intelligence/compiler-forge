@@ -19,7 +19,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Final
 
 INTERFACE_VERSION: Final[str] = "cf/1"
-SPEC_VERSION: Final[int] = 1
+# 2: the generalist score is normalised over the whole round task set — an
+#    artifact is scored 0 on every task it did not clear, not only the ones it
+#    attempted — so coverage is required and a single favourable task can no
+#    longer reach (and freeze) the dethronement ceiling. Changing scoring is a
+#    fork: artifacts scored under an earlier version are not comparable.
+SPEC_VERSION: Final[int] = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +194,13 @@ class ConsensusSpec:
         split = self.emission.mechanism_split_u16
         if sum(split) != 65535:
             raise ValueError(f"mechanism split must sum to 65535, got {sum(split)}")
+        lane = self.emission.specialist_share + self.emission.bounty_share
+        if abs(lane - 1.0) > 1e-9:
+            raise ValueError(f"specialist + bounty share must sum to 1.0, got {lane}")
+        for name in ("floor_pool_share", "champion_decay_min_share", "champion_decay_per_round"):
+            value = getattr(self.emission, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"emission.{name} must be in [0, 1], got {value}")
 
     def digest(self) -> str:
         """Content hash of the whole regime.
