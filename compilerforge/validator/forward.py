@@ -117,8 +117,14 @@ async def forward(self) -> RoundBundle | None:
     # neuron so a single-validator network still produces every pair.
     validator_uids = sorted(n.uid for n in snapshot.neurons if n.validator_permit) or [self.uid]
     assignments = assign_producers(plan, artifacts, validator_uids)
-    mine = [a for a in assignments if a.producer_uid == self.uid]
-    logger.info(f"Producing {len(mine)} of {len(assignments)} assigned pairs")
+    if getattr(self.config.neuron, "full_production", False):
+        # Score every agent locally so this validator's weight vector is complete
+        # rather than a stake-comparable share of the split. See --neuron.full_production.
+        mine = list(assignments)
+        logger.info(f"Producing all {len(mine)} pairs (full_production)")
+    else:
+        mine = [a for a in assignments if a.producer_uid == self.uid]
+        logger.info(f"Producing {len(mine)} of {len(assignments)} assigned pairs")
     patches = await produce_patches(self, mine, plan, artifacts)
 
     # -- open the sealed hidden inputs, now that the artifact set is frozen ----
