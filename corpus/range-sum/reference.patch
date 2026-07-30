@@ -1,0 +1,71 @@
+--- a/src/rangesum.c
++++ b/src/rangesum.c
+@@ -14,6 +14,11 @@
+ struct rs_table {
+     long *values;
+     size_t count;
++    /* Running totals carried once across the sequence: prefix_sum[i] is the sum
++     * of the first i values, prefix_even[i] the count of even values among them.
++     * Either query is then one subtraction. */
++    long *prefix_sum;
++    size_t *prefix_even;
+ };
+ 
+ rs_table *rs_build(const long *values, size_t count)
+@@ -23,11 +28,17 @@
+         return NULL;
+     }
+     t->values = calloc(count > 0 ? count : 1, sizeof *t->values);
+-    if (t->values == NULL) {
+-        free(t);
++    t->prefix_sum = calloc(count + 1, sizeof *t->prefix_sum);
++    t->prefix_even = calloc(count + 1, sizeof *t->prefix_even);
++    if (t->values == NULL || t->prefix_sum == NULL || t->prefix_even == NULL) {
++        rs_free(t);
+         return NULL;
+     }
+     memcpy(t->values, values, count * sizeof *values);
++    for (size_t i = 0; i < count; i++) {
++        t->prefix_sum[i + 1] = rs_add(t->prefix_sum[i], values[i]);
++        t->prefix_even[i + 1] = t->prefix_even[i] + (rs_is_even(values[i]) ? 1u : 0u);
++    }
+     t->count = count;
+     return t;
+ }
+@@ -38,6 +49,8 @@
+         return;
+     }
+     free(t->values);
++    free(t->prefix_sum);
++    free(t->prefix_even);
+     free(t);
+ }
+ 
+@@ -55,12 +68,8 @@
+         hi = t->count - 1;
+     }
+ 
+-    /* Walks the whole range every call, though nothing in it ever changes. */
+-    long acc = 0;
+-    for (size_t i = lo; i <= hi; i++) {
+-        acc = rs_add(acc, t->values[i]);
+-    }
+-    return acc;
++    /* One subtraction of running totals, whatever the range width. */
++    return t->prefix_sum[hi + 1] - t->prefix_sum[lo];
+ }
+ 
+ size_t rs_range_even(const rs_table *t, size_t lo, size_t hi)
+@@ -72,11 +81,5 @@
+         hi = t->count - 1;
+     }
+ 
+-    size_t seen = 0;
+-    for (size_t i = lo; i <= hi; i++) {
+-        if (rs_is_even(t->values[i])) {
+-            seen++;
+-        }
+-    }
+-    return seen;
++    return t->prefix_even[hi + 1] - t->prefix_even[lo];
+ }
