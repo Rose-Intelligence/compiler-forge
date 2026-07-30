@@ -19,11 +19,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Final
 
 INTERFACE_VERSION: Final[str] = "cf/1"
-# 2: the generalist score is normalised over the whole round task set — an
-#    artifact is scored 0 on every task it did not clear, not only the ones it
-#    attempted — so coverage is required and a single favourable task can no
-#    longer reach (and freeze) the dethronement ceiling. Changing scoring is a
-#    fork: artifacts scored under an earlier version are not comparable.
+# The generalist score is normalised over the whole round task set — an artifact
+# is scored 0 on every task it did not clear, not only the ones it attempted — so
+# coverage is required and no single favourable task can reach (and freeze) the
+# dethronement ceiling. Changing scoring is a fork: artifacts scored under a
+# different spec version are not comparable.
 SPEC_VERSION: Final[int] = 2
 
 

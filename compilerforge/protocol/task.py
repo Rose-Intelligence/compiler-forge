@@ -92,9 +92,8 @@ class PatchScope(_Frozen):
     """Which files a patch is allowed to touch.
 
     An allowlist, not a denylist. A denylist of "protected" paths has to
-    enumerate every file that could be abused, and it will always miss one — the
-    first version of this system protected tests and the build definition but not
-    the benchmark, and a patch that moved the instrumentation markers scored the
+    enumerate every file that could be abused, and it will always miss one: a
+    patch that moves the instrumentation markers, for example, can score the
     maximum possible capture while optimizing nothing.
 
     Anything not matched here is validator-owned and immutable, so a package that

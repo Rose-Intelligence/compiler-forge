@@ -295,23 +295,18 @@ dethronement resistance to cloning, floor-and-decay emissions, selection
 determinism, every equivalence comparator, the Callgrind parser, and the security
 boundary.
 
-The integration tests build actual C code and take actual measurements. They are
-the tests that caught the bugs unit tests could not:
-
-- a Callgrind cost line read from the wrong place (`summary:` versus `totals:`)
-- a cached baseline whose workspace was never built
-- a differential harness pointed at the benchmark binary
-- an output filename that lets traced child processes clobber each other
+The integration tests build actual C code and take actual measurements. They
+cover what unit tests cannot: reading the Callgrind cost line from the right
+place (`totals:` versus `summary:`), rebuilding a cached baseline's workspace,
+pointing a differential harness at the correct binary, and output filenames that
+keep traced child processes from clobbering each other.
 
 One of them measures the same patch twice and requires the instruction counts to
-match **exactly**. That is the property the entire consensus design rests on, and
-it is worth asserting rather than assuming.
+match **exactly** — the property the entire consensus design rests on.
 
 ---
 
 # Incentive mechanism
-
-How a measurement becomes a weight.
 
 How a measurement becomes a weight.
 
@@ -502,8 +497,6 @@ Split as u16 weights summing to 65,535: `[39321, 26214]`.
 
 ## The burn policy, and why it is a floor instead
 
-This is the part most likely to be got wrong by a subnet copying an older design.
-
 Each subnet's share of block emission is:
 
 ```
@@ -571,8 +564,7 @@ rather than by a detector that has to keep winning an arms race.
 
 ## The reference ladder
 
-A leaderboard showing only miner scores is a marketing artifact. Every round
-publishes miner scores alongside:
+Every round publishes miner scores alongside a set of controls:
 
 1. The unmodified repository at the pinned optimization level
 2. Pinned `-O2` and `-O3`, plus a PGO reference where the task supports profiling
@@ -581,9 +573,9 @@ publishes miner scores alongside:
 5. The reference agent shipped in the SDK — the "is the miner beating the freely
    available starting point?" control
 
-That combination is what makes the leaderboard a research instrument rather than a
-claim, and it is the most persuasive object the project can put in front of a
-technical reader.
+Publishing these controls alongside the miner scores lets a reader judge whether
+open competition is adding anything over the freely available baselines, rather
+than reading a bare ranking.
 
 ---
 
@@ -649,17 +641,16 @@ confused with one another.
 | **Task voided** | The *task* is unmeasurable — unstable baseline, no hidden inputs, persistent tier divergence | Nothing. The task is dropped for everyone | No crown change |
 | **Evaluation error** | *This validator* could not evaluate the pair | Nothing. No score is emitted for the pair | Round continues, error recorded |
 
-The last two are the ones easy to get wrong, and both were real bugs found while
-building this:
+The last two are the ones easy to get wrong:
 
-- A task package whose input generator failed used to yield an empty case list,
-  which failed the differential gate for **every** miner. A corpus problem became
-  forty undeserved zeroes. It now voids the task.
+- A task package whose input generator fails must not yield an empty case list
+  that fails the differential gate for **every** miner, turning a corpus problem
+  into a set of undeserved zeroes. It voids the task instead.
   → `RoundRunner._prepare_cases` returns `(cases, unpreparable)`.
 
-- A crash inside the evaluator used to produce a zero-score artifact, punishing
-  the miner for a fault on the validator's side. It now emits **no score** for
-  that pair, marked `voided=True` so aggregation excludes it, and records the
+- A crash inside the evaluator must not produce a zero-score artifact that
+  punishes the miner for a fault on the validator's side. It emits **no score**
+  for that pair, marked `voided=True` so aggregation excludes it, and records the
   error so a validator crashing on everything is visible rather than looking like
   a round where nobody improved anything.
   → `RoundResult.evaluation_errors`.
@@ -720,12 +711,8 @@ perfectly healthy round.
 
 `--netuid` has no usable default: a neuron pointed at the wrong subnet reads the
 wrong metagraph and sets weights nobody asked for, so `0` is rejected at startup.
-
-> **Historical note.** Under SDK v10 this project used `bt.Config(parser)`, which
-> silently discarded every argument the subnet defined — including `--netuid` —
-> because CLI parsing was gated behind an environment variable that defaults to
-> off. Configuration is parsed directly now, and
-> `test_every_declared_argument_survives_parsing` exists so it cannot recur.
+Configuration is parsed directly, and `test_every_declared_argument_survives_parsing`
+pins that every declared argument survives parsing.
 
 ---
 

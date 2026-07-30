@@ -104,7 +104,7 @@ def check_config(cls, config: NeuronConfig) -> None:
 def add_chain_args(parser: argparse.ArgumentParser) -> None:
     """Wallet and chain arguments.
 
-    Defined here because Bittensor 11 no longer exposes ``add_args`` helpers on
+    Defined here because Bittensor 11 does not expose ``add_args`` helpers on
     ``Wallet`` and ``Subtensor``.
     """
     wallet = parser.add_argument_group("wallet")

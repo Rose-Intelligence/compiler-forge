@@ -293,25 +293,25 @@ profiles that are *not* in the published manifest.
 
 ## Building your agent
 
-The reference agent in `compilerforge/miner/reference_agent/` is a working
-implementation of the loop that gets rewarded. It exists as a control — the
-"is the miner beating the freely available starting point?" rung of the published
-leaderboard ladder — not as a competitor.
+The reference agent in `compilerforge/miner/reference_agent/` is a minimal
+starting point: it applies two behaviour-preserving transforms, checks the code
+still builds, and writes the patch. It does not profile or measure. Read it, run
+it, then build past it.
 
-Read it, then beat it. The loop it demonstrates:
+The loop that earns capture:
 
 1. **Reproduce the baseline.** Build it, run it, measure it.
 2. **Profile.** Rank functions by instruction share. Prioritise against the
    declared objective, not against whatever is easiest to change.
-3. **Generate several candidates.** Stopping at the first plausible edit is the
-   single most common way to leave capture on the table.
+3. **Generate several candidates.** Stopping at the first plausible edit leaves
+   capture on the table.
 4. **Verify each one locally.** Build, check behaviour, measure. Discard on any
    doubt — the validator's gates are stricter than yours.
 5. **Return the best survivor, or nothing.**
 
 ### Measure the way the validator measures
 
-This is the highest-value thing you can do. The validator scores you on
+This is the highest-value thing you can add. The validator scores you on
 **instruction count under Callgrind**, not wall-clock:
 
 ```bash
@@ -320,7 +320,7 @@ valgrind --tool=callgrind --instr-atstart=no --cache-sim=yes \
 ```
 
 A harness that optimizes against wall-clock on a shared machine is optimizing
-against noise. Two subtleties the reference agent already handles:
+against noise. Two subtleties to handle:
 
 - With `--instr-atstart=no`, Valgrind 3.22 leaves `summary:` at a single zero and
   puts the bracketed cost in `totals:`. Read the wrong line and you will conclude

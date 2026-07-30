@@ -1,16 +1,14 @@
 """Turning standings into a weight vector (10.6).
 
-The correction that matters most in this design:
+Under the June 2026 emission formula, each subnet's share of block TAO
+emission is ``share_i = p_i × (1 − b_i) / Σ_j p_j × (1 − b_j)``, where ``b_i``
+is the proportion of the last tempo's miner incentive withheld because it was
+directed to subnet-owner hotkeys — counted whether that alpha was recycled or
+burned. A subnet that burns 80% of miner incentive takes roughly an 80% cut to
+its own TAO inflow, on top of paying nothing to miners.
 
-    Under the June 2026 emission formula, each subnet's share of block TAO
-    emission is ``share_i = p_i × (1 − b_i) / Σ_j p_j × (1 − b_j)``, where ``b_i``
-    is the proportion of the last tempo's miner incentive withheld because it was
-    directed to subnet-owner hotkeys — counted whether that alpha was recycled or
-    burned. A subnet that burns 80% of miner incentive takes roughly an 80% cut to
-    its own TAO inflow, on top of paying nothing to miners.
-
-So the earlier "burn the cell when nobody beats the baseline" policy is directly
-self-harming, and is replaced by four rules:
+Burning a cell when nobody beats the baseline is therefore self-harming, so the
+policy is four rules:
 
   1. **Floor, do not burn.** When no artifact clears the improvement threshold,
      distribute across artifacts that passed every correctness gate and returned an

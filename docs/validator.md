@@ -364,8 +364,8 @@ cf-corpus derive-round ./corpus \
     --block-hash 0x... --corpus-snapshot cf-corpus-2026.08
 ```
 
-Publishing these is the credibility argument the network is actually making. A
-leaderboard nobody can reproduce is a marketing artifact.
+Publishing these lets any third party reproduce the ranking rather than take it
+on trust.
 
 ---
 
