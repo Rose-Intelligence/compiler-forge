@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -161,3 +162,31 @@ class ScoreArtifact(BaseModel):
 
     def content_hash(self) -> str:
         return "sha256:" + hashlib.sha256(self.signing_payload()).hexdigest()
+
+    def sign(self, keypair: Any) -> None:
+        """Sign this artifact in place with the verifier hotkey's keypair.
+
+        Called by the validator that measured it, before publishing. The signature
+        lets any third party — and any other validator ingesting it — confirm the
+        artifact is this hotkey's and was not edited after it committed.
+        """
+        self.validator_signature = keypair.sign(self.signing_payload()).hex()
+
+    def signature_valid(self, keypair_cls: Any) -> bool:
+        """Whether ``validator_signature`` is a valid signature by ``verifier_hotkey``.
+
+        ``keypair_cls`` builds a verifier from an ss58 address (the wallet's Keypair
+        class). A forged ``verifier_hotkey``/signature pair fails, so an ingesting
+        validator counts only artifacts that are genuinely their claimed author's.
+        """
+        if not self.validator_signature or not self.verifier_hotkey:
+            return False
+        try:
+            verifier = keypair_cls(ss58_address=self.verifier_hotkey)
+            return bool(
+                verifier.verify(
+                    self.signing_payload(), bytes.fromhex(self.validator_signature)
+                )
+            )
+        except Exception:  # noqa: BLE001 - a malformed signature is simply invalid
+            return False

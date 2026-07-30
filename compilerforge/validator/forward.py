@@ -189,7 +189,13 @@ async def forward(self) -> RoundBundle | None:
             "measurements but no on-chain effect"
         )
 
-    # -- publish everything needed to reproduce the ranking -----------
+    # -- sign every artifact, then publish -----------------------------
+    # The signature is this validator's commitment to what it measured: a third
+    # party — or another validator ingesting the artifact — can confirm authorship
+    # and that nothing was edited after the fact.
+    for artifact in result.score_artifacts:
+        artifact.sign(self.wallet.hotkey)
+
     champion = self.allocator.champions.champion
     bundle = RoundBundle(
         round_number=self.round_number,
