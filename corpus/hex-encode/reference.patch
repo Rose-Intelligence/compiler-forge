@@ -1,0 +1,31 @@
+--- a/src/hexencode.c
++++ b/src/hexencode.c
+@@ -12,12 +12,16 @@
+ 
+ struct hx_encoder {
+     int ready;
++    char table[256][2];   /* every byte's two hex chars, formed once */
+ };
+ 
+ hx_encoder *hx_new(void)
+ {
+     hx_encoder *enc = calloc(1, sizeof *enc);
+     if (enc != NULL) {
++        for (int b = 0; b < 256; b++) {
++            hx_byte((unsigned char)b, enc->table[b]);
++        }
+         enc->ready = 1;
+     }
+     return enc;
+@@ -30,9 +34,9 @@
+ 
+ size_t hx_encode(const hx_encoder *enc, const unsigned char *data, size_t n, char *out)
+ {
+-    (void)enc;
+     for (size_t i = 0; i < n; i++) {
+-        hx_byte(data[i], out + 2 * i);   /* recompute both digits, every byte */
++        out[2 * i] = enc->table[data[i]][0];
++        out[2 * i + 1] = enc->table[data[i]][1];
+     }
+     out[2 * n] = '\0';
+     return 2 * n;

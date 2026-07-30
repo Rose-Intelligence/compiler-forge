@@ -1,0 +1,69 @@
+# sparse-dot — a mostly-zero vector dotted against dense queries by touching
+# every component.
+#
+# The vector is fixed and sparse, yet each query walks all n components, zeros
+# included. Recording the nonzero positions once makes each query cost the number
+# of nonzeros. Density is the axis the profiles vary.
+
+package_id: sparse-dot
+family: numerical
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_sparsedot
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+workload_profiles:
+  - name: dense
+    args: ["--size", "120", "--density", "22", "--queries", "300"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 1.510160
+  - name: medium
+    args: ["--size", "220", "--density", "13", "--queries", "300"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 2.637677
+  - name: sparse
+    args: ["--size", "400", "--density", "7", "--queries", "300"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 4.518774
+
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

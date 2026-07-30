@@ -1,0 +1,69 @@
+# dedup-lines — counting distinct lines by comparing every pair.
+#
+# Each line is checked against every earlier line, so the batch costs O(n^2).
+# Sorting it once turns "seen before?" into a single adjacent-pair walk at
+# O(n log n). The observables — the distinct count and an order-independent hash
+# of the distinct set — do not depend on order, so the sort is free to reorder.
+
+package_id: dedup-lines
+family: cli_utilities
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_dedup
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+workload_profiles:
+  - name: small
+    args: ["--lines", "24", "--repeats", "200"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 1.587109
+  - name: medium
+    args: ["--lines", "48", "--repeats", "200"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 2.729162
+  - name: large
+    args: ["--lines", "96", "--repeats", "200"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 4.976205
+
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

@@ -1,0 +1,72 @@
+--- a/src/sparsedot.c
++++ b/src/sparsedot.c
+@@ -14,6 +14,10 @@
+ struct sv_vec {
+     long *values;
+     size_t n;
++    /* Positions of the nonzero components, recorded once. Each query visits only
++     * these instead of all n. */
++    size_t *nz;
++    size_t nnz;
+ };
+ 
+ sv_vec *sv_build(const long *values, size_t n)
+@@ -23,12 +27,18 @@
+         return NULL;
+     }
+     v->values = calloc(n > 0 ? n : 1, sizeof *v->values);
+-    if (v->values == NULL) {
+-        free(v);
++    v->nz = calloc(n > 0 ? n : 1, sizeof *v->nz);
++    if (v->values == NULL || v->nz == NULL) {
++        sv_free(v);
+         return NULL;
+     }
+     memcpy(v->values, values, n * sizeof *values);
+     v->n = n;
++    for (size_t i = 0; i < n; i++) {
++        if (values[i] != 0) {
++            v->nz[v->nnz++] = i;
++        }
++    }
+     return v;
+ }
+ 
+@@ -38,6 +48,7 @@
+         return;
+     }
+     free(v->values);
++    free(v->nz);
+     free(v);
+ }
+ 
+@@ -48,10 +59,12 @@
+     if (v == NULL || query == NULL) {
+         return 0;
+     }
+-    size_t m = n < v->n ? n : v->n;
+     long acc = 0;
+-    for (size_t i = 0; i < m; i++) {   /* visits zeros too */
+-        acc = sv_madd(acc, v->values[i], query[i]);
++    for (size_t k = 0; k < v->nnz; k++) {
++        size_t i = v->nz[k];
++        if (i < n) {
++            acc = sv_madd(acc, v->values[i], query[i]);
++        }
+     }
+     return acc;
+ }
+@@ -61,10 +74,10 @@
+     if (v == NULL || query == NULL) {
+         return 0;
+     }
+-    size_t m = n < v->n ? n : v->n;
+     size_t seen = 0;
+-    for (size_t i = 0; i < m; i++) {
+-        if (v->values[i] != 0 && query[i] != 0) {
++    for (size_t k = 0; k < v->nnz; k++) {
++        size_t i = v->nz[k];
++        if (i < n && query[i] != 0) {
+             seen++;
+         }
+     }

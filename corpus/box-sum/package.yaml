@@ -1,0 +1,68 @@
+# box-sum — a 2-D grid re-summing each queried rectangle from scratch.
+#
+# The grid is fixed once built. A summed-area table formed in a single pass lets
+# any rectangle be answered from four corner reads; the baseline instead walks
+# the whole rectangle every query.
+
+package_id: box-sum
+family: image
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_boxsum
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+workload_profiles:
+  - name: small
+    args: ["--side", "8", "--queries", "600"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 3.597396
+  - name: medium
+    args: ["--side", "14", "--queries", "600"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 6.457263
+  - name: large
+    args: ["--side", "22", "--queries", "600"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 13.104414
+
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py

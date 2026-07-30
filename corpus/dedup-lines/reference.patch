@@ -1,0 +1,54 @@
+--- a/src/dedup.c
++++ b/src/dedup.c
+@@ -6,25 +6,41 @@
+ 
+ #include "internal.h"
+ 
++#include <stdlib.h>
++#include <string.h>
++
++static int dl_cmp_ptr(const void *a, const void *b)
++{
++    return strcmp(*(const char *const *)a, *(const char *const *)b);
++}
++
+ size_t dl_run(const char *const *lines, size_t n, unsigned long *hashsum)
+ {
++    if (n == 0) {
++        if (hashsum != NULL) {
++            *hashsum = 0;
++        }
++        return 0;
++    }
++
++    /* Sort a copy of the pointers once; equal lines are then adjacent. */
++    const char **sorted = malloc(n * sizeof *sorted);
++    if (sorted == NULL) {
++        return 0;
++    }
++    memcpy(sorted, lines, n * sizeof *sorted);
++    qsort(sorted, n, sizeof *sorted, dl_cmp_ptr);
++
+     size_t distinct = 0;
+     unsigned long sum = 0;
+-
+     for (size_t i = 0; i < n; i++) {
+-        int seen = 0;
+-        for (size_t j = 0; j < i; j++) {   /* scans every earlier line */
+-            if (dl_eq(lines[i], lines[j])) {
+-                seen = 1;
+-                break;
+-            }
+-        }
+-        if (!seen) {
++        if (i == 0 || !dl_eq(sorted[i], sorted[i - 1])) {
+             distinct++;
+-            sum += dl_hash(lines[i]);
++            sum += dl_hash(sorted[i]);
+         }
+     }
+ 
++    free(sorted);
+     if (hashsum != NULL) {
+         *hashsum = sum;
+     }

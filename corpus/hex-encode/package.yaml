@@ -1,0 +1,68 @@
+# hex-encode — hex-encoding a buffer by recomputing each byte's digits.
+#
+# A nibble's hex digit is constant, yet the baseline branches per nibble for
+# every byte of every buffer. Precomputing the 256 two-char encodings once turns
+# each byte into a table read. Buffer size is the axis the profiles vary.
+
+package_id: hex-encode
+family: serialisation
+license: MIT
+revision: "0000000000000000000000000000000000000000"
+
+hidden_family: false
+
+build_command: >-
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build build -j8
+
+forbidden_flags:
+  - "-ffast-math"
+  - "-fno-strict-aliasing"
+  - "-fwrapv"
+
+test_command: ./build/test_hexencode
+test_inventory_globs:
+  - "tests/**/*"
+
+benchmark_command: ./build/bench
+
+differential_command: ./build/differential
+objective: balanced
+measured_region: cf_bench_start/cf_bench_stop
+
+workload_profiles:
+  - name: short
+    args: ["--bytes", "48", "--queries", "500"]
+    published: true
+    selection_weight: 3.0
+    s_ref_deterministic: 2.367707
+  - name: medium
+    args: ["--bytes", "128", "--queries", "500"]
+    published: true
+    selection_weight: 2.0
+    s_ref_deterministic: 2.404986
+  - name: long
+    args: ["--bytes", "384", "--queries", "500"]
+    published: false
+    selection_weight: 1.0
+    s_ref_deterministic: 2.420603
+
+equivalence_discipline: byte_equal
+side_effects:
+  - stdout
+  - exit_code
+
+reference:
+  patch_path: reference.patch
+  origin: curated
+
+resources:
+  cpu_cores: 8
+  ram_gb: 16
+  disk_gb: 32
+  pids_max: 512
+  model_token_budget: 150000
+
+fuzz_targets: []
+
+input_generator: python3 tools/generate_cases.py
