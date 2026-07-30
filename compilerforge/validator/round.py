@@ -157,6 +157,11 @@ class RoundRunner:
     workdir: Path
     #: Only the top candidates by Tier A reach the calibrated wall-clock host.
     tier_b_top_n: int = 100
+    #: Run apply/build/measure inside a container rather than on the host, so the
+    #: miner's patch never executes where the wallet and hidden inputs live.
+    verify_in_sandbox: bool = False
+    verify_image: str | None = None
+    container_cli: str = "docker"
 
     def verify(
         self,
@@ -215,11 +220,20 @@ class RoundRunner:
             )
 
             try:
-                artifact = evaluator.evaluate(
-                    candidate,
-                    selected,
-                    cases=cases_by_task.get(produced.task_id, []),
-                )
+                cases = cases_by_task.get(produced.task_id, [])
+                if self.verify_in_sandbox:
+                    from compilerforge.sandbox.verify import run_in_sandbox
+
+                    artifact = run_in_sandbox(
+                        candidate,
+                        selected,
+                        cases,
+                        self.ctx,
+                        image=self.verify_image or "",
+                        container_cli=self.container_cli,
+                    )
+                else:
+                    artifact = evaluator.evaluate(candidate, selected, cases=cases)
             except TaskVoided as exc:
                 # The failure belongs to the task, not to this miner. Drop it for
                 # everyone rather than zeroing whoever happened to be evaluated

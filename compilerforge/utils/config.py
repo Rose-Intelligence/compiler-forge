@@ -267,6 +267,21 @@ def add_validator_args(cls, parser: argparse.ArgumentParser) -> None:
         help="Permit a shared-kernel container runtime. Development only: a "
         "validator holds a hotkey on the machine that runs untrusted code.",
     )
+    sandbox.add_argument(
+        "--sandbox.verify_in_sandbox",
+        action="store_true",
+        help="Run the verification pipeline (apply, build, run, measure the "
+        "miner's patch) inside a container instead of on the host. Requires "
+        "--sandbox.verify_image. The toolchain digest is pinned to that image so "
+        "every validator running it agrees.",
+    )
+    sandbox.add_argument(
+        "--sandbox.verify_image",
+        type=str,
+        default=None,
+        help="Container image that runs the sandboxed verification. Its toolchain "
+        "is the canonical one; all validators must run the same image.",
+    )
 
     output = parser.add_argument_group("output")
     output.add_argument(

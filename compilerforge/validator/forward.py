@@ -136,7 +136,13 @@ async def forward(self) -> RoundBundle | None:
     sealed_cases = _open_sealed_cases(plan)
 
     # -- verification everywhere --------------------------------------
-    runner = RoundRunner(ctx=self.evaluation_context(corpus), workdir=self.workdir / "rounds")
+    runner = RoundRunner(
+        ctx=self.evaluation_context(corpus),
+        workdir=self.workdir / "rounds",
+        verify_in_sandbox=self.config.sandbox.verify_in_sandbox,
+        verify_image=self.config.sandbox.verify_image,
+        container_cli=self.config.sandbox.container_cli,
+    )
     result = runner.verify(
         plan, patches, sealed_cases=sealed_cases, round_number=self.round_number
     )

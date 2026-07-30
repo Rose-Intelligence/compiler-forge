@@ -509,7 +509,18 @@ def toolchain_digest() -> str:
 
     Part of the comparability tuple. Two validators on different Clang builds are
     not measuring the same program, and must not compare scores.
+
+    ``CF_TOOLCHAIN_DIGEST`` pins this to a canonical value. A validator that
+    measures inside the sandbox sets it — to the digest of the pinned container's
+    toolchain — so task derivation on the host names the toolchain the container
+    actually measures with, and every validator running that image agrees
+    regardless of its host compiler. Inside the container the variable is unset,
+    so the digest is computed from the real (canonical) toolchain there.
     """
+    override = os.environ.get("CF_TOOLCHAIN_DIGEST", "").strip()
+    if override:
+        return override
+
     parts: list[str] = []
     for tool in (PINNED_C_COMPILER, PINNED_CXX_COMPILER, "ld", "cmake"):
         path = shutil.which(tool)

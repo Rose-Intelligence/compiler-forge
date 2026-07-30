@@ -16,6 +16,8 @@ paying for.
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -79,12 +81,52 @@ class Validator(BaseValidatorNeuron):
         if not self.corpus_dir.exists():
             raise RuntimeError(f"Corpus directory {self.corpus_dir} does not exist")
 
+        if self.config.sandbox.verify_in_sandbox:
+            image = self.config.sandbox.verify_image
+            if not image:
+                raise RuntimeError(
+                    "--sandbox.verify_in_sandbox requires --sandbox.verify_image: "
+                    "the container whose toolchain is canonical for the fleet."
+                )
+            digest = self._pin_sandbox_toolchain(image)
+            os.environ["CF_TOOLCHAIN_DIGEST"] = digest
+            logger.info("Verification runs in %s; toolchain pinned to %s", image, digest[:26])
+
         if not self.config.measurement.tier_b:
             logger.info(
                 "Wall-clock measurement is disabled. This validator contributes a "
                 "full consensus weight through the deterministic tier and no "
                 "wall-clock evidence."
             )
+
+    def _pin_sandbox_toolchain(self, image: str) -> str:
+        """The toolchain digest computed inside the verification image.
+
+        Making the container's toolchain canonical: every validator running this
+        image derives tasks and stamps artifacts with the same digest, so a
+        measurement made in the image is comparable across the fleet regardless of
+        the host compiler.
+        """
+        proc = subprocess.run(  # noqa: S603
+            [
+                self.config.sandbox.container_cli, "run", "--rm", "--network=none",
+                image, "python3", "-c",
+                "from compilerforge.evaluation.build import toolchain_digest;"
+                " print(toolchain_digest())",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        lines = proc.stdout.strip().splitlines()
+        digest = lines[-1].strip() if lines else ""
+        if not digest.startswith("sha256:"):
+            raise RuntimeError(
+                f"could not read the toolchain digest from {image!r}: "
+                f"{(proc.stderr or proc.stdout)[-500:]}"
+            )
+        return digest
 
     def evaluation_context(self, corpus: Corpus) -> EvaluationContext:
         """Assemble the validator-owned tooling for one round."""
