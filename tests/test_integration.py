@@ -13,6 +13,7 @@ Marked ``slow`` and skipped when the toolchain is absent:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,6 +25,11 @@ from compilerforge.sdk.evaluator import LocalEvaluator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CORPUS = REPO_ROOT / "corpus"
+# Held-out families are provisioned outside the public repo (see cf-corpus-private);
+# env override, else the sibling checkout. Fixtures that need one skip when absent.
+PRIVATE_CORPUS = Path(
+    os.environ.get("CF_PRIVATE_CORPUS_DIR") or REPO_ROOT.parent / "cf-corpus-private"
+)
 
 pytestmark = pytest.mark.slow
 
@@ -49,7 +55,10 @@ def string_split() -> LoadedPackage:
 
 @pytest.fixture(scope="module")
 def token_count() -> LoadedPackage:
-    return LoadedPackage.load(CORPUS / "token-count")
+    pkg = PRIVATE_CORPUS / "token-count"
+    if not pkg.exists():
+        pytest.skip("private corpus not provisioned; token-count is a held-out package")
+    return LoadedPackage.load(pkg)
 
 
 @pytest.fixture(scope="module")
