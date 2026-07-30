@@ -11,6 +11,7 @@ degraded puts incomparable weights on chain.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,15 @@ from compilerforge.validator.cli import (
 )
 
 CORPUS = Path(__file__).resolve().parent.parent / "corpus"
+
+# The held-out families live outside the public repo, provisioned separately and
+# merged via --corpus.private_dir. Tests that need a hidden package look for that
+# provisioned dir (env override, else the sibling checkout) and skip when it is
+# absent — a bare public checkout cannot exercise the held-out path.
+PRIVATE_CORPUS = Path(
+    os.environ.get("CF_PRIVATE_CORPUS_DIR")
+    or Path(__file__).resolve().parent.parent.parent / "cf-corpus-private"
+)
 
 
 def test_a_missing_deterministic_tier_blocks(monkeypatch):
@@ -89,7 +99,10 @@ def test_a_missing_corpus_blocks():
 
 
 def test_the_shipped_corpus_passes_preflight():
-    checks = check_corpus(CORPUS)
+    """The public corpus merged with the provisioned held-out corpus is clean."""
+    if not PRIVATE_CORPUS.exists():
+        pytest.skip("private corpus not provisioned; cannot check the merged view")
+    checks = check_corpus(CORPUS, PRIVATE_CORPUS)
     blocking = [c for c in checks if c.status is Status.BLOCKING]
     assert not blocking, [f"{c.name}: {c.detail}" for c in blocking]
 
@@ -110,6 +123,8 @@ def test_an_unmeasured_reference_blocks(tmp_path):
     """Capture has nothing to normalise against, so those tasks would void."""
     import shutil
 
+    if not (PRIVATE_CORPUS / "token-count").exists():
+        pytest.skip("private corpus not provisioned; no held-out package to include")
     shutil.copytree(CORPUS / "string-split", tmp_path / "pkg")
     manifest = tmp_path / "pkg" / "package.yaml"
     manifest.write_text(
@@ -119,7 +134,7 @@ def test_an_unmeasured_reference_blocks(tmp_path):
             if "s_ref_deterministic" not in line
         )
     )
-    shutil.copytree(CORPUS / "token-count", tmp_path / "hidden")
+    shutil.copytree(PRIVATE_CORPUS / "token-count", tmp_path / "hidden")
 
     checks = check_corpus(tmp_path)
     blocking = [c for c in checks if c.status is Status.BLOCKING]

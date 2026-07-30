@@ -132,8 +132,12 @@ def check_memory_measurement() -> Check:
     )
 
 
-def check_corpus(corpus_dir: Path) -> list[Check]:
-    """A corpus that cannot supply a round is a blocking problem, not a warning."""
+def check_corpus(corpus_dir: Path, private_dir: Path | None = None) -> list[Check]:
+    """A corpus that cannot supply a round is a blocking problem, not a warning.
+
+    The held-out families live outside the public corpus, so preflight checks the
+    same merged view a round runs against: the public dir plus the private dir.
+    """
     if not corpus_dir.exists():
         return [
             Check(
@@ -144,8 +148,9 @@ def check_corpus(corpus_dir: Path) -> list[Check]:
             )
         ]
 
+    extra = (private_dir,) if private_dir and private_dir.exists() else ()
     try:
-        corpus = Corpus.load(corpus_dir, "preflight")
+        corpus = Corpus.load(corpus_dir, "preflight", extra_roots=extra)
     except Exception as exc:  # noqa: BLE001 - reported, never absorbed
         return [Check("Corpus", Status.BLOCKING, f"could not load: {exc}")]
 
@@ -164,7 +169,8 @@ def check_corpus(corpus_dir: Path) -> list[Check]:
                 "Hidden family",
                 Status.BLOCKING,
                 "corpus has no held-out package",
-                "a round requires at least one, so task derivation will refuse",
+                "provision the private corpus and point --corpus.private_dir at it; "
+                "a round requires at least one held-out package or task derivation refuses",
             )
         )
 
@@ -249,7 +255,10 @@ def check_chain(netuid: int, network: str) -> list[Check]:
 def preflight(
     netuid: int = typer.Option(..., help="Subnet netuid"),
     network: str = typer.Option("finney", "--subtensor.network", help="Network or endpoint"),
-    corpus_dir: Path = typer.Option(Path("./corpus"), "--corpus.dir", help="Task packages"),
+    corpus_dir: Path = typer.Option(Path("./corpus"), "--corpus.dir", help="Public task packages"),
+    private_dir: Path = typer.Option(
+        None, "--corpus.private_dir", help="Held-out task packages, provisioned separately"
+    ),
     chain: bool = typer.Option(True, "--chain/--no-chain", help="Also check the subnet"),
     allow_unhardened: bool = typer.Option(
         False, "--sandbox.allow_unhardened_runtime", help="Permit a shared-kernel runtime"
@@ -261,7 +270,7 @@ def preflight(
         check_sandbox_runtime(allow_unhardened=allow_unhardened),
         check_wall_clock_host(),
         check_memory_measurement(),
-        *check_corpus(corpus_dir),
+        *check_corpus(corpus_dir, private_dir),
     ]
     if chain:
         checks.extend(check_chain(netuid, network))
