@@ -13,7 +13,7 @@ third party can verify from public data.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from compilerforge.protocol.commitment import ArtifactCommitment
 
@@ -38,15 +38,19 @@ class FrozenArtifact:
 
 
 def earliest_commitment_times(artifacts: list[FrozenArtifact]) -> dict[str, datetime]:
-    """digest -> earliest commitment time.
+    """digest -> a trustworthy commitment ordering, the dethronement tie-break.
 
-    Used as the dethronement tie-break: when two artifacts are indistinguishable
-    on score, the one committed first wins, which removes any payoff from watching
-    the leaderboard and cloning whoever is ahead.
+    When two artifacts are indistinguishable on score, the one committed first
+    wins, which removes any payoff from watching the leaderboard and cloning
+    whoever is ahead. The ordering is taken from the chain block the artifact was
+    frozen at — the chain's own record — NOT the ``committed_at`` inside the
+    miner's payload, which a cloner would set to the minimum to win every tie. The
+    block is rendered as a datetime purely so the ordering interface is unchanged;
+    only the relative order is ever used.
     """
     out: dict[str, datetime] = {}
     for artifact in artifacts:
-        when = artifact.commitment.committed_at
+        when = datetime.fromtimestamp(artifact.frozen_at_block, tz=UTC)
         if artifact.digest not in out or when < out[artifact.digest]:
             out[artifact.digest] = when
     return out

@@ -146,21 +146,25 @@ class FuzzReport:
     crashes: int
     divergences: int
     detail: str = ""
+    #: False when a declared fuzz target could not be built. That is a gate
+    #: failure, not a pass: a patch that breaks the harness's compilation must not
+    #: skip fuzzing rather than fail it.
+    built: bool = True
 
     @property
     def clean(self) -> bool:
-        return self.crashes == 0 and self.divergences == 0
+        return self.built and self.crashes == 0 and self.divergences == 0
 
     def as_gate(self) -> GateResult:
+        detail = self.detail or (
+            f"{self.executions} executions, no crash or divergence"
+            if self.clean
+            else f"{self.crashes} crashes, {self.divergences} divergences"
+        )
         return GateResult(
             name=GateName.FUZZ,
             passed=self.clean,
-            detail=self.detail
-            or (
-                f"{self.executions} executions, no crash or divergence"
-                if self.clean
-                else f"{self.crashes} crashes, {self.divergences} divergences"
-            ),
+            detail=detail,
             seconds=self.seconds,
         )
 
@@ -190,13 +194,16 @@ class FuzzRunner:
 
         target_path = workspace.root / target
         if not target_path.exists():
+            # A declared target that is not on disk means the patch broke its
+            # build. Fail the gate rather than skip fuzzing.
             return FuzzReport(
                 target=target,
                 seconds=time.monotonic() - started,
                 executions=0,
                 crashes=0,
                 divergences=0,
-                detail=f"fuzz target {target} was not built",
+                built=False,
+                detail=f"declared fuzz target {target} was not built by the patch",
             )
 
         artifacts = workspace.root / ".cf-fuzz"

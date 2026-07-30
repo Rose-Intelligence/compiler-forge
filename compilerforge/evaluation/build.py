@@ -76,6 +76,18 @@ def parse_patch(patch: str) -> PatchStats:
     return PatchStats(changed_files=files, added_lines=added, removed_lines=removed)
 
 
+#: Valgrind/Callgrind client requests and the headers that define them. A patch
+#: has no legitimate reason to reference measurement instrumentation, and doing so
+#: is a way to disable it, so any of these on an added line fails the hygiene gate.
+_INSTRUMENTATION_TOKENS: tuple[str, ...] = (
+    "CALLGRIND_",
+    "RUNNING_ON_VALGRIND",
+    "__VALGRIND_MAJOR__",
+    "valgrind/callgrind.h",
+    "valgrind/valgrind.h",
+)
+
+
 def check_patch_hygiene(patch: str, task: Task) -> GateResult:
     """Patch size and scope limits (maintainability).
 
@@ -102,11 +114,35 @@ def check_patch_hygiene(patch: str, task: Task) -> GateResult:
     # scored the maximum possible capture while optimizing nothing.
     patchable = task.patch_scope.patchable
     for f in stats.changed_files:
-        if not _is_patchable(f, patchable):
+        if not _is_safe_relpath(f):
+            # A glob like ``src/**`` matches ``src/../../../etc/passwd``, so the
+            # scope check alone does not stop traversal. Reject absolute paths and
+            # any ``..`` component outright, before the write ever happens.
+            problems.append(
+                f"{f} is not a repository-relative path; absolute paths and '..' "
+                "are refused so a patch cannot write outside the tree"
+            )
+        elif not _is_patchable(f, patchable):
             problems.append(
                 f"{f} is outside the patchable area ({', '.join(patchable)}); it "
                 "belongs to the validator"
             )
+
+    # A Valgrind/Callgrind client request inside the measured region switches
+    # instruction counting off — a no-op outside Callgrind, so every correctness
+    # gate stays green while the deterministic speedup clamps to the maximum.
+    # Optimised source has no reason to reference them, so any occurrence on an
+    # added line is refused.
+    for line in patch.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        hit = next((tok for tok in _INSTRUMENTATION_TOKENS if tok in line), None)
+        if hit:
+            problems.append(
+                f"patch introduces a Valgrind/Callgrind client request ({hit}); "
+                "these can disable the instruction-count measurement and are refused"
+            )
+            break
 
     return GateResult(
         name=GateName.PATCH_HYGIENE,
@@ -125,6 +161,15 @@ def _is_patchable(relative_path: str, patterns: tuple[str, ...]) -> bool:
     # Shared with the immutable-tree hash. The two must agree exactly, or a file
     # accepted as a legal edit is then rejected as a tree modification.
     return matches_any(relative_path, patterns)
+
+
+def _is_safe_relpath(path: str) -> bool:
+    """A repository-relative path with no traversal: rejects an absolute path or
+    any ``..`` component, so a diff header cannot direct a write outside the tree."""
+    normalised = path.strip().replace("\\", "/")
+    if not normalised or normalised.startswith("/"):
+        return False
+    return ".." not in normalised.split("/")
 
 
 def check_immutable_tree(workspace: Workspace, task: Task) -> GateResult:
@@ -179,9 +224,11 @@ def apply_patch(workspace: Workspace, patch: str) -> GateResult:
     patch_file.write_text(patch)
 
     # --check first so a partially applied patch never leaves a half-patched tree.
+    # No --unsafe-paths: git's own refusal to write outside the tree is kept as a
+    # second line behind the hygiene gate's path check.
     for args in (
-        ["git", "apply", "--check", "--unsafe-paths", str(patch_file)],
-        ["git", "apply", "--unsafe-paths", str(patch_file)],
+        ["git", "apply", "--check", str(patch_file)],
+        ["git", "apply", str(patch_file)],
     ):
         proc = subprocess.run(  # noqa: S603
             args, cwd=workspace.root, capture_output=True, text=True, check=False
