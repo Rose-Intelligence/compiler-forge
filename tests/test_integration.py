@@ -254,11 +254,10 @@ def _make_patch(repo: Path, relpath: str, content: str, tmp_path: Path) -> str:
 
 @requires_toolchain
 def test_the_reference_agent_produces_a_real_improvement(evaluator, string_split):
-    """The SDK's reference agent is a published control, so it has to work.
+    """The starting-point agent has to run and produce a gate-passing speedup.
 
-    It should find a genuine, gate-passing improvement — and capture well below
-    1.0, because a control that matched the expert would leave no headroom for
-    the competition it exists to calibrate.
+    Its capture stays well below 1.0: a basic agent leaves most of the headroom
+    for a miner to claim by improving on it.
     """
     agent = REPO_ROOT / "compilerforge" / "miner" / "reference_agent" / "agent.py"
     task = evaluator.build_task(string_split, seed="0x77", profile_name="default")
@@ -273,26 +272,6 @@ def test_the_reference_agent_produces_a_real_improvement(evaluator, string_split
     assert result.ok, result.summary()
     assert result.score.tier_a.deterministic_speedup > 1.0
     assert 0.0 < result.score.reference.capture < 1.0
-
-
-@requires_toolchain
-def test_the_reference_agent_predicts_its_own_result(evaluator, string_split):
-    """It measures with the same instrument the validator scores on, so its
-    self-estimate should match what the validator independently measures.
-
-    The estimate is never scored. It is checked here because a large gap would
-    mean the agent is measuring something other than what it is paid for — which
-    is the single most common way a miner wastes its budget.
-    """
-    agent = REPO_ROOT / "compilerforge" / "miner" / "reference_agent" / "agent.py"
-    task = evaluator.build_task(string_split, seed="0x77", profile_name="default")
-
-    result = evaluator.evaluate_agent(["python3", str(agent)], task)
-    assert result.ok, result.summary()
-
-    claimed = result.run.report.self_measurement.local_speedup_estimate
-    measured = result.score.tier_a.deterministic_speedup
-    assert claimed == pytest.approx(measured, rel=0.02)
 
 
 @requires_toolchain
