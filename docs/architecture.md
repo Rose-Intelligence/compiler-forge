@@ -202,11 +202,11 @@ compares the wrong thing.
 generators use an explicit counter-based stream rather than `random`, for the same
 reason task selection does.
 
-**Inputs that target what a rewrite gets wrong.** `token-count`'s generator emits
-anagrams (a byte-summing hash merges them), tokens longer than 64 bytes (a
-fixed-size stack buffer overflows), and whitespace runs (a hand-rolled tokeniser
-emits empty tokens). None of these appear in the public test suite. That is the
-point.
+**Inputs that target what a rewrite gets wrong.** A package's generator emits the
+cases a naive rewrite mishandles — collisions a weak hash merges, boundary-length
+tokens that overflow a fixed buffer, degenerate runs a hand-rolled loop gets wrong
+— none of which appear in the public test suite. That is the point: correctness is
+checked on inputs the agent was never shown.
 
 **A workload profile axis that actually matters.** Vary the parameter that decides
 how badly the inefficiency hurts, and mark at least one profile unpublished so it
@@ -239,21 +239,21 @@ than inventing a denominator.
 
 ## The corpus in this repository
 
-Two worked packages, both real code that really builds and really measures.
+Two worked public packages, both real code that really builds and really measures.
 
-| | `string-split` | `token-count` |
+| | `string-split` | `sorted-index` |
 |---|---------------|---------------|
 | Family | parsing | data structures |
-| Visibility | public | **held out** |
-| The inefficiency | `strlen` inside a loop condition, `realloc` one element at a time, malloc/free per line | linear scan over a flat array on every insert and lookup |
-| The fix | hoist the scan, allocate once, reuse one buffer | an open-addressing index beside the table |
-| The constraint | none | the public struct layout is part of the API and cannot grow a field |
-| S_ref | 1.31x – 1.65x by profile | 4.05x – 10.30x by profile |
+| The inefficiency | `strlen` inside a loop condition, `realloc` one element at a time, malloc/free per line | every lookup walks a sorted array, ignoring the order it already guarantees |
+| The fix | hoist the scan, allocate once, reuse one buffer | binary-search the keys it already keeps sorted |
+| The constraint | none | none — the win is noticing an invariant, not restructuring code |
+| S_ref | 1.31x – 1.65x by profile | 4.77x – 25.34x by profile |
 
-`token-count` is deliberately a different *shape* of problem, so an agent that
-memorises the first learns nothing useful for the second. Its constraint — fixing
-a data structure without being able to change the struct that holds it — is the
-kind of thing real optimization work runs into constantly.
+`sorted-index` is deliberately a different *shape* of problem from `string-split`,
+so an agent that memorises the first learns nothing useful for the second: one is
+a redundant scan over text, the other an algorithmic property of sorted data a
+rewrite has to *notice*. The held-out families (kept in the private corpus) test
+exactly this transfer — that technique carries to a problem the agent never saw.
 
 ---
 
@@ -390,8 +390,8 @@ in. A noisy 1.20x scores below a confident 1.15x.
 ### Why per workload profile
 
 The same reference patch is routinely worth several times more on one workload
-shape than another. In the shipped corpus, `token-count`'s reference is 4.05x on a
-small vocabulary and 10.30x on a large one — the same patch, the same code.
+shape than another. In the shipped corpus, `sorted-index`'s reference is 4.77x on a
+small index and 25.34x on a large one — the same patch, the same code.
 
 So `S_ref` is stored **per profile**, not per package. A package-wide average
 would over-reward artifacts on the easy profiles and under-reward them on the hard

@@ -275,14 +275,13 @@ compilerforge/
   miner/                    miner neuron and the reference agent
   sdk/                      the local evaluator miners develop against
 
-corpus/                     7 packages: 4 public, 3 held out. See docs/corpus.md
+corpus/                     the public C/C++ task packages. Held-out families are
+                            provisioned separately and never listed here — see
+                            docs/corpus.md for categories and the language roadmap
   string-split/             a parser that rescans what it already measured
   matrix-stats/             cost spread across three translation units
   sorted-index/             a sorted array queried as if it were unsorted
   record-pack/              three passes measuring the same fields
-  token-count/              held out — a data structure wrong for the access pattern
-  run-length/               held out — quadratic in the size of its own output
-  window-checksum/          held out — every window recomputed from scratch
 
 docs/                       guides and runbooks
 tests/                      183 fast tests, 15 marked slow

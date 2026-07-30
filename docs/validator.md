@@ -138,7 +138,10 @@ cf-validator hyperparameters --netuid <netuid>
 
 A package with no measured reference speedup cannot be scored — capture has
 nothing to normalise against — and a corpus with no held-out family cannot
-produce a round at all.
+produce a round at all. The held-out families live outside the public corpus and
+are provisioned with `--corpus.private_dir` (see Running); without them a round
+fails closed rather than scoring on public tasks alone. `cf-corpus validate
+./corpus --corpus.private_dir ./cf-corpus-private` checks the merged view.
 
 ---
 
@@ -150,6 +153,7 @@ python neurons/validator.py \
     --wallet.name validator --wallet.hotkey default \
     --subtensor.network finney \
     --corpus.dir ./corpus \
+    --corpus.private_dir ./cf-corpus-private \
     --corpus.snapshot cf-corpus-2026.08 \
     --audit.dir ./audit
 ```
@@ -166,13 +170,16 @@ Under pm2:
 ```bash
 pm2 start neurons/validator.py --name cf-validator --interpreter python3 -- \
     --netuid <netuid> --wallet.name validator --wallet.hotkey default \
-    --corpus.dir ./corpus --corpus.snapshot cf-corpus-2026.08
+    --corpus.dir ./corpus --corpus.private_dir ./cf-corpus-private \
+    --corpus.snapshot cf-corpus-2026.08
 ```
 
 Key arguments:
 
 | Argument | Default | Notes |
 |----------|---------|-------|
+| `--corpus.dir` | `./corpus` | The public task packages |
+| `--corpus.private_dir` | — | The held-out packages, provisioned separately; merged with `--corpus.dir`. Required to run held-out tasks |
 | `--neuron.epoch_length` | 7200 | Blocks per round (~24h). A full round cannot complete in a default 72-minute tempo |
 | `--neuron.public_tasks` | 25 | Public corpus tasks per round |
 | `--neuron.hidden_tasks` | 3 | Held-out generalisation tasks. At least one is required |
@@ -493,6 +500,7 @@ python neurons/validator.py \
     --wallet.name cf_test --wallet.hotkey validator \
     --subtensor.network test \
     --corpus.dir ./corpus \
+    --corpus.private_dir ./cf-corpus-private \
     --corpus.snapshot cf-corpus-testnet \
     --audit.dir ./audit \
     --neuron.epoch_length 360 \
@@ -714,6 +722,7 @@ pm2 start neurons/validator.py --name cf-validator --interpreter python3 -- \
     --wallet.name validator --wallet.hotkey default \
     --subtensor.network finney \
     --corpus.dir ./corpus \
+    --corpus.private_dir ./cf-corpus-private \
     --corpus.snapshot cf-corpus-2026.08 \
     --audit.dir ./audit
 ```

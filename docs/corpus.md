@@ -1,15 +1,32 @@
 # The corpus
 
-Where task packages live, what "hidden" actually means here, and what it cannot
-mean on a permissionless network.
+How problems are categorised, where task packages live, what "hidden" actually
+means here, and what it cannot mean on a permissionless network.
+
+## Categories
+
+A problem has two category axes.
+
+**Language.** Today the corpus is **C and C++**: every package builds with the
+pinned `clang`/`clang++` toolchain, and capture is measured on native code. This
+is the only language track at present. Additional language tracks — the same
+freeze → derive → verify → measure loop run against other compiled or
+JIT-optimised languages — are on the roadmap. Each will be its own category, so a
+champion is crowned per language rather than across incomparable runtimes.
+
+**Workload family.** Within a language, each package declares a `family` — the
+kind of work it stresses: `compression`, `serialisation`, `parsing`, `numerical`,
+`image`, `data_structures`, `networking`, `cli_utilities`. Scores are aggregated
+per family as well as overall, so an artifact cannot win the generalist crown by
+dominating a single family (see the specialist lane in `docs/architecture.md`).
 
 ## Where packages are saved
 
-Every package is a directory under [`corpus/`](../corpus), public and held-out
-alike:
+A package is a directory of files — the same layout whether it is public or
+held-out:
 
 ```
-corpus/<package-id>/
+<package-id>/
   package.yaml            the manifest: build, test, benchmark, profiles, S_ref
   reference.patch         the expert optimization, measured, never shipped to agents
   repo/                   the source tree a candidate patches
@@ -17,11 +34,18 @@ corpus/<package-id>/
   inputs/hidden.sealed    optional: timelocked differential corpus
 ```
 
-There is no second location and no database. A package is files on disk, the
-corpus is a directory of them, and `Corpus.load(dir, snapshot)` is the whole
-loading story. That is deliberate: the corpus has to be content-hashable so a
-round seed can pin exactly which snapshot it was derived under, and a directory
-of files hashes cleanly where a service does not.
+The **public families** live under [`corpus/`](../corpus) in this repository. The
+**held-out families** live in a separate private repository (`cf-corpus-private`),
+provisioned onto each validator and pointed at with `--corpus.private_dir`. They
+are kept out of the public tree so cloning it does not reveal the held-out set or
+its reference patches. `Corpus.load(public_dir, snapshot, extra_roots=(private_dir,))`
+merges the two into one snapshot and refuses a `package_id` that appears in both.
+
+A package is still just files on disk — no database, no task server. The corpus
+has to be content-hashable so a round seed can pin exactly which snapshot it was
+derived under, and a directory of files hashes cleanly where a service does not;
+splitting the held-out families into a second directory does not change that,
+because the snapshot is the merged set.
 
 ## How they are served
 
@@ -93,19 +117,30 @@ not as secrets. They raise the cost of overfitting; they do not make it
 impossible. Documentation that claims otherwise is overclaiming, and the
 distinction matters to a customer deciding whether to believe a benchmark.
 
-### If you genuinely need a private set
+### What this subnet does
 
-Three options, in descending order of how well they fit this design:
+The held-out families are kept in a private repository (`cf-corpus-private`) and
+merged in on each validator, so they are not readable by cloning the public repo.
+That is worth doing — it keeps the reference patches off public search and scrape,
+and off the pre-training corpora that would otherwise ingest them — but on a
+permissionless network it is not a secret: a determined miner could run a
+validator and read the merged corpus off disk. So the split raises the cost of
+overfitting; it does not, by itself, make the set private. The guarantee still
+rests on the three pillars above, and the primary defence is planned to be scale.
+
+Three levers, in descending order of how well they fit this design:
 
 1. **Grow the corpus until memorising it is not worth it.** The cheapest and most
-   robust answer. Overfitting to 7 packages is tractable; to 200 it is not, and
-   nothing about the mechanism has to change.
+   robust answer, and the direction here: overfitting to a handful of packages is
+   tractable, to a few hundred it is not, and nothing about the mechanism changes
+   as the corpus grows.
 2. **Procedural generation.** Generate the *program* from the round seed, not just
    its inputs. Nothing needs hiding because the task did not exist before the
    round. This is the strongest option and the largest piece of work.
-3. **A private corpus with a permissioned validator subset.** Workable, and it
-   costs permissionlessness. If you take it, say so plainly rather than
-   describing the network as open.
+3. **A private corpus, provisioned to validators.** Implemented today via
+   `cf-corpus-private` + `--corpus.private_dir`. It costs nothing in
+   permissionlessness *as long as the network is described honestly*: any
+   validator can obtain the set, so it is a scrape barrier, not a secret.
 
 ## Adding a package
 
@@ -119,13 +154,18 @@ cf-eval patch corpus/<id> --patch corpus/<id>/reference.patch   # must be 1.000
 manifest. It has to be measured rather than estimated, because capture is
 normalised against it: `capture = (S_lcb - 1) / (S_ref - 1)`.
 
+A **held-out** package follows the same steps but is committed to the private
+corpus repo (`cf-corpus-private`), never to `corpus/`. Set `hidden_family: true`
+and validate the merged view with
+`cf-corpus validate corpus --corpus.private_dir <private-checkout>`.
+
 Three things decide whether a package is worth adding:
 
 **The inefficiency must survive `-O2`.** This is the most common mistake. A
 `strlen` in a loop condition looks expensive and is free, because the compiler
 proves the buffer unchanged and hoists it — the reference then measures 1.0000x
 and the package is rejected. Every package here routes some step through a
-separate translation unit (`keycmp.c`, `runbyte.c`, `fieldlen.c`, `accum.c`) so
+separate translation unit (`keycmp.c`, `fieldlen.c`, `csvsplit.c`, `vector.c`) so
 that, with no LTO in the pinned toolchain, the optimizer cannot see through it.
 What is measured is then the algorithm rather than the inliner.
 
