@@ -178,7 +178,6 @@ Key arguments:
 | `--neuron.hidden_tasks` | 3 | Held-out generalisation tasks. At least one is required |
 | `--neuron.freeze_lead_blocks` | 300 | Blocks between freezing artifacts and drawing the selecting hash |
 | `--neuron.heartbeat_blocks` | 900 | Weight heartbeat interval. **Not optional** — see below |
-| `--neuron.full_production` | off | Score every agent locally instead of this validator's share of the split. See below |
 | `--measurement.tier_b` | off | Enable wall-clock. Requires a calibrated host |
 | `--measurement.fuzz_seconds` | 300 | Fuzzing budget per candidate |
 
@@ -197,8 +196,8 @@ heartbeat thread automatically; do not disable it.
 1. Freeze     read every artifact commitment at a pinned historical block
 2. Wait       for a LATER block
 3. Derive     that block's hash selects repository, revision, workload, seed
-4. Produce    run the agents assigned to this validator; publish their patches
-5. Verify     independently evaluate EVERY published patch
+4. Produce    run every agent to produce its patch
+5. Verify     independently evaluate every patch
 6. Aggregate  combine into per-artifact standings
 7. Crown      apply the dethronement rules
 8. Weight     submit one vector per mechanism
@@ -209,32 +208,19 @@ Steps 1–3 are the security argument and **must not be reordered**. Because ste
 draws entropy that did not exist at step 1, "this artifact was not tuned to this
 task" becomes checkable from public data rather than a claim anyone has to trust.
 
-### Production once, verification everywhere
+### Independent evaluation, merged by consensus
 
-If every validator ran every agent, a round would consume roughly 1,000 agent
-runs × ~150,000 tokens *per validator*, daily. That is the largest cost in the
-system and it buys almost nothing — the expensive part, generating the patch, is
-not the part consensus needs to be independent about.
+Every validator runs every agent and evaluates every `(artifact, task)` pair
+itself — applies, builds, differentially tests, fuzzes, sanitizes and measures —
+then sets weights from its own measurements. Yuma Consensus merges those weight
+vectors by stake on chain, and that on-chain merge is the cross-validation: no
+validator ever trusts another's patch or score, so there is nothing to forge and
+no separate patch/score transport to run.
 
-So agent execution happens **once** per `(artifact, task)`, assigned by a seeded
-rotation every validator derives identically from the block hash. The resulting
-patch and its digest are published. Every validator then independently applies,
-builds, differentially tests, fuzzes, sanitizes and measures *that patch*.
-
-Consensus forms over the measurement, which is exactly where independence matters
-and where cost is low.
-
-A sample of pairs is re-executed each round by a different producer under the same
-seed. A producer whose published patch cannot be reproduced loses eligibility and
-its stake weight is challenged.
-
-The split assumes the validator set holds comparable stake, so Yuma merges each
-validator's partial weight vector fairly. When one validator holds most of the
-stake — a small or early network — its partial vector alone decides emission, and
-any agent whose pairs were assigned elsewhere is scored on a vote that barely
-counts. Set `--neuron.full_production` on such a validator to score every agent
-locally and publish a complete vector; on a small agent set the extra compute is
-cheap.
+The redundancy is the point — independent measurement is what a validator is paid
+for. Splitting production across validators to save the agent runs is a scale
+optimisation for a large fleet, but it needs a signed patch/score exchange this
+subnet does not yet ship, so every validator does the full evaluation.
 
 ---
 

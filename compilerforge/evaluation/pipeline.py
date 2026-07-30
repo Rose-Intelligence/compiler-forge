@@ -95,9 +95,10 @@ class EvaluationContext:
 class CandidatePatch:
     """One patch to evaluate, and who produced it.
 
-    Production happens once per (artifact, task) by a seeded producer subset; every
-    validator then independently verifies *this* patch. Consensus is
-    formed over the measurement, which is where independence actually matters.
+    Every validator produces this patch itself (by running the agent) and measures
+    it independently, then sets weights from its own measurements; Yuma Consensus
+    merges those on chain. Consensus is formed over the measurement, which is where
+    independence actually matters.
     """
 
     artifact_digest: str

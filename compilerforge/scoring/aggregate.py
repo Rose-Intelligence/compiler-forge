@@ -102,12 +102,12 @@ class ArtifactAggregate:
 
 @dataclass(slots=True)
 class RoundAggregator:
-    """Combines every validator's score artifacts into per-artifact standings.
+    """Reduces one validator's score artifacts into per-artifact standings.
 
-    Each validator scores locally and signs what it measured. This
-    class never computes a weight vector on anyone's behalf — it reduces the
-    artifacts *one* validator holds, including the ones it received from peers for
-    the cross-validator agreement component, into that validator's own view.
+    Each validator scores locally and signs what it measured, and reduces its own
+    artifacts into its own view; this class never computes a weight vector on
+    anyone else's behalf. Cross-validation is Yuma Consensus merging the validators'
+    weight vectors by stake on chain, not a merge performed here.
     """
 
     spec_digest: str = field(default_factory=SPEC.digest)

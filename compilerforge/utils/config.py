@@ -214,18 +214,6 @@ def add_validator_args(cls, parser: argparse.ArgumentParser) -> None:
         help="Blocks between weight heartbeats. Long rounds plus the activity "
         "cutoff make this mandatory, not optional.",
     )
-    neuron.add_argument(
-        "--neuron.full_production",
-        action="store_true",
-        help="Produce and score every agent-task pair locally instead of taking "
-        "only this validator's share of the split. Splitting production across "
-        "validators assumes their stake is comparable, so Yuma merges their "
-        "partial weight vectors fairly; when one validator holds most of the "
-        "stake, its partial vector decides emission and any agent whose pairs "
-        "were assigned elsewhere is starved. On a small agent set the compute is "
-        "cheap, so a dominant validator should score everyone and publish a "
-        "complete vector.",
-    )
 
     measurement = parser.add_argument_group("measurement")
     measurement.add_argument(

@@ -112,19 +112,17 @@ async def forward(self) -> RoundBundle | None:
         f"from block {select_block}"
     )
 
-    # -- production once ----------------------------------------------
-    # Distribute production across the permitted validators; fall back to this
-    # neuron so a single-validator network still produces every pair.
-    validator_uids = sorted(n.uid for n in snapshot.neurons if n.validator_permit) or [self.uid]
-    assignments = assign_producers(plan, artifacts, validator_uids)
-    if getattr(self.config.neuron, "full_production", False):
-        # Score every agent locally so this validator's weight vector is complete
-        # rather than a stake-comparable share of the split. See --neuron.full_production.
-        mine = list(assignments)
-        logger.info(f"Producing all {len(mine)} pairs (full_production)")
-    else:
-        mine = [a for a in assignments if a.producer_uid == self.uid]
-        logger.info(f"Producing {len(mine)} of {len(assignments)} assigned pairs")
+    # -- independent evaluation ---------------------------------------
+    # Every validator runs every agent and verifies every pair itself, then sets
+    # weights from its own measurements; Yuma Consensus merges those weight vectors
+    # by stake on chain. That on-chain merge is the cross-validation — the standard
+    # Bittensor model — so no validator ever trusts another's patch and there is no
+    # separate patch/score transport to build or exploit. (Splitting production
+    # across validators to save agent runs is a scale optimisation for a large
+    # fleet; it needs an exchange this subnet does not ship, so it is not used.)
+    assignments = assign_producers(plan, artifacts, [self.uid])
+    mine = list(assignments)
+    logger.info(f"Producing and verifying all {len(mine)} pairs")
     patches = await produce_patches(self, mine, plan, artifacts)
 
     # -- open the sealed hidden inputs, now that the artifact set is frozen ----
@@ -135,7 +133,7 @@ async def forward(self) -> RoundBundle | None:
     # not-yet-revealable seal never fails a miner.
     sealed_cases = _open_sealed_cases(plan)
 
-    # -- verification everywhere --------------------------------------
+    # -- verify every pair --------------------------------------------
     runner = RoundRunner(
         ctx=self.evaluation_context(corpus),
         workdir=self.workdir / "rounds",
@@ -279,7 +277,7 @@ def freeze_artifacts(snapshot: MetagraphSnapshot) -> list[FrozenArtifact]:
 
 
 async def produce_patches(self, assignments, plan, artifacts) -> list[ProducedPatch]:
-    """Execute the agents assigned to this validator and publish their patches."""
+    """Run every agent to produce its patch."""
     runner = ArtifactRunner(
         workdir=self.workdir / "artifacts",
         container_cli=self.config.sandbox.container_cli,

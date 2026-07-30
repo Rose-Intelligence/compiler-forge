@@ -51,7 +51,7 @@ class ArtifactRun:
     timed_out: bool = False
     tokens_used: int = 0
     #: Digest of the patch bytes. This is what gets published so every validator
-    #: verifies the same patch (production once, verification everywhere).
+    #: verifies the same patch.
     patch_digest: str = ""
     #: Why report.json could not be read, when it could not. Carried so the
     #: interface check can tell a miner what was wrong rather than only that

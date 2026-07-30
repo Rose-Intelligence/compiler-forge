@@ -1,22 +1,11 @@
 """One evaluation round, end to end.
 
-The cost structure of a round drives the shape of this file:
-
-    If every validator independently executes every agent, a round consumes
-    roughly 1,000 agent runs x ~150,000 tokens per validator per round, duplicated
-    across the entire validator set, daily. That is the single largest cost in the
-    system and it buys almost nothing, because the expensive part — generating the
-    patch — is not the part consensus needs to be independent about.
-
-So agent execution happens **once** per (artifact, task), by a seeded rotating
-producer subset. The resulting patch and its digest are published. Every validator
-then independently applies, builds, differentially tests, fuzzes, sanitizes and
-measures *that patch*. Consensus is formed over the measurement, which is exactly
-where independence matters and where cost is low.
-
-Anti-collusion: a random sample of pairs is re-executed each round by a different
-producer under the same seed. A producer whose published patch cannot be reproduced
-loses eligibility and its stake weight is challenged.
+Every validator runs every agent and evaluates every ``(artifact, task)`` pair
+itself — applies, builds, differentially tests, fuzzes, sanitizes and measures —
+then sets weights from its own measurements. Yuma Consensus merges those weight
+vectors by stake on chain, and that on-chain merge is the cross-validation: no
+validator trusts another's patch or score, so independence is structural rather
+than something a transport has to enforce.
 """
 
 from __future__ import annotations
