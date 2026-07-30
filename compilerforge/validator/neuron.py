@@ -42,6 +42,8 @@ class Validator(BaseValidatorNeuron):
         super().__init__(config=config)
 
         self.corpus_dir = Path(self.config.corpus.dir).expanduser()
+        private = getattr(self.config.corpus, "private_dir", "") or ""
+        self.corpus_private_dir = Path(private).expanduser() if private else None
         self.audit_dir = Path(self.config.audit.dir).expanduser()
         self.specialist_cells = [
             c.strip() for c in self.config.specialist.cells.split(",") if c.strip()

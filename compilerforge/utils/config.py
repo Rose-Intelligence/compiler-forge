@@ -170,7 +170,15 @@ def add_args(cls, parser: argparse.ArgumentParser) -> None:
 
     work = parser.add_argument_group("work layout")
     work.add_argument(
-        "--corpus.dir", type=str, default="./corpus", help="Directory containing task packages."
+        "--corpus.dir", type=str, default="./corpus", help="Directory containing the public task packages."
+    )
+    work.add_argument(
+        "--corpus.private_dir",
+        type=str,
+        default="",
+        help="Directory containing the held-out task packages, provisioned outside the "
+        "public repository. Merged with --corpus.dir into one snapshot. Required to run "
+        "held-out tasks; a validator without it fails closed when a round needs them.",
     )
     work.add_argument(
         "--corpus.snapshot",

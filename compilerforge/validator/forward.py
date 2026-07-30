@@ -57,7 +57,9 @@ async def forward(self) -> RoundBundle | None:
     self.round_number += 1
     logger.info(f"=== Round {self.round_number} ===")
 
-    corpus = Corpus.load(self.corpus_dir, self.config.corpus.snapshot)
+    private = getattr(self, "corpus_private_dir", None)
+    extra = (private,) if private and private.exists() else ()
+    corpus = Corpus.load(self.corpus_dir, self.config.corpus.snapshot, extra_roots=extra)
     if not corpus.packages:
         raise RoundAborted(f"no task packages under {self.corpus_dir}")
 

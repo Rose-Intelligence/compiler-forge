@@ -339,13 +339,28 @@ class Corpus:
     packages: dict[str, LoadedPackage] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, root: Path, snapshot_id: str) -> Corpus:
+    def load(cls, root: Path, snapshot_id: str, extra_roots: tuple[Path, ...] = ()) -> Corpus:
+        """Load every package under ``root``, then under each of ``extra_roots``.
+
+        The public families live in the open repository; the held-out families
+        are provisioned separately (a private repository or on-host bundle) and
+        passed as an extra root. They merge into one snapshot: the load order does
+        not matter because identity is the package's content hash and every
+        consumer sorts by ``package_id``. A ``package_id`` appearing in two roots
+        is a provisioning mistake, not something to silently resolve, so it fails.
+        """
         packages: dict[str, LoadedPackage] = {}
-        for child in sorted(root.iterdir()):
-            if not child.is_dir() or not (child / "package.yaml").exists():
-                continue
-            loaded = LoadedPackage.load(child)
-            packages[loaded.package.package_id] = loaded
+        for r in (root, *extra_roots):
+            for child in sorted(r.iterdir()):
+                if not child.is_dir() or not (child / "package.yaml").exists():
+                    continue
+                loaded = LoadedPackage.load(child)
+                if loaded.package.package_id in packages:
+                    raise ValueError(
+                        f"package_id {loaded.package.package_id!r} appears in more than "
+                        f"one corpus root; each package must be provisioned once"
+                    )
+                packages[loaded.package.package_id] = loaded
         return cls(snapshot_id=snapshot_id, packages=packages)
 
     def public(self) -> list[LoadedPackage]:

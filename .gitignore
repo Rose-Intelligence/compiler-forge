@@ -49,3 +49,10 @@ cf-dashboard/
 *.pem
 *.key
 .env
+
+# Held-out (generalisation-tier) task packages live in the private corpus repo
+# (cf-corpus-private), provisioned to validators via --corpus.private_dir. They
+# must never be committed to this public repository.
+corpus/run-length/
+corpus/window-checksum/
+corpus/token-count/
