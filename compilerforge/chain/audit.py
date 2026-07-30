@@ -1,11 +1,10 @@
 """The public audit repository.
 
-SN17 404-GEN keeps all competition state in a public git repository so every stage
-transition is traceable. CompilerForge adopts the same discipline, because it is
-the credibility argument the commercial product is actually selling: anyone can
+All competition state lives in a public git repository so every stage transition
+is traceable. That is the credibility argument the product is selling: anyone can
 re-run a round from public data and reach the same ranking.
 
-After each round the operator publishes:
+After each round the operator publishes the canonical bundle:
 
   * the task manifest and its content hash
   * the timelock ciphertext and the revealed material
@@ -13,10 +12,7 @@ After each round the operator publishes:
   * the aggregated weight vector
   * the accepted patches for public-corpus tasks
 
-A leaderboard that shows only miner scores is a marketing artifact. The bundle
-also carries the reference ladder — unmodified, ``-O2``, ``-O3``, PGO, the naive
-LLM patcher, and the SDK reference agent — which is what turns it into a research
-instrument.
+so anyone can re-derive the ranking from public data.
 """
 
 from __future__ import annotations

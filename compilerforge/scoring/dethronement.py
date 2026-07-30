@@ -2,8 +2,7 @@
 
 The commercial product deploys exactly one default agent, so the mechanism should
 select exactly one — with a meaningful margin and a short memory of recent
-challengers. The pattern is SN120 Affine's, adapted from a binary dominance signal
-to a continuous one.
+challengers, on a continuous dominance signal rather than a binary one.
 
 Four rules, and every one of them is load-bearing:
 
