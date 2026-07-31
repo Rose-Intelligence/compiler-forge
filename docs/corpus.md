@@ -72,7 +72,7 @@ rather than asserted.
 a count and nothing else:
 
 ```json
-{ "hidden_package_count": 3, "public_packages": [ ... ] }
+{ "hidden_package_count": 15, "public_packages": [ ... ] }
 ```
 
 A miner learns how many held-out families a round draws from, never which. Their

@@ -275,13 +275,19 @@ compilerforge/
   miner/                    miner neuron and the reference agent
   sdk/                      the local evaluator miners develop against
 
-corpus/                     the public C/C++ task packages. Held-out families are
-                            provisioned separately and never listed here — see
+corpus/                     the 10 public C/C++ task packages. Held-out families
+                            are provisioned separately and never listed here — see
                             docs/corpus.md for categories and the language roadmap
   string-split/             a parser that rescans what it already measured
   matrix-stats/             cost spread across three translation units
   sorted-index/             a sorted array queried as if it were unsorted
   record-pack/              three passes measuring the same fields
+  range-sum/                range queries re-summed instead of prefixed once
+  csv-cut/                  fields re-scanned from the front on every access
+  dedup-lines/              distinct lines counted by pairwise comparison
+  box-sum/                  rectangle sums without a summed-area table
+  sparse-dot/               a sparse dot product that visits every zero
+  hex-encode/               each byte's hex digits recomputed per call
 
 docs/                       guides and runbooks
 tests/                      183 fast tests, 15 marked slow
