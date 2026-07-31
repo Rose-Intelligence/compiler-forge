@@ -33,11 +33,21 @@ console = Console()
 
 @app.command()
 def validate(
-    corpus_dir: Path = typer.Argument(..., help="Directory of task packages"),
+    corpus_dir: Path = typer.Argument(..., help="Directory of public task packages"),
+    private_dir: Path = typer.Option(
+        None, "--private-dir", help="Held-out packages, provisioned separately; merged in"
+    ),
     strict: bool = typer.Option(True, help="Fail on any package problem"),
 ) -> None:
-    """Check every package for the things that void a task at round time."""
-    corpus = Corpus.load(corpus_dir, "validate")
+    """Check every package for the things that void a task at round time.
+
+    Validates the public tree by itself, or the merged public + held-out view when
+    ``--private-dir`` is given. A public-only tree with no held-out family is a
+    note, not a failure — the held-out packages live in the private corpus, and the
+    validator enforces their presence at run time.
+    """
+    extra = (private_dir,) if private_dir is not None and private_dir.exists() else ()
+    corpus = Corpus.load(corpus_dir, "validate", extra_roots=extra)
     if not corpus.packages:
         console.print(f"[red]No task packages under {corpus_dir}[/red]")
         raise typer.Exit(1)
@@ -82,14 +92,29 @@ def validate(
     )
 
     if not corpus.hidden():
-        console.print(
-            Panel(
-                "This corpus has no hidden family. A round requires at least one "
-                "held-out package, so the validator will refuse to derive tasks.",
-                border_style="red",
+        if private_dir is not None:
+            # A complete corpus was requested (a private dir was supplied) yet still
+            # has no held-out family: that is a real misconfiguration.
+            console.print(
+                Panel(
+                    "This corpus has no hidden family. A round requires at least one "
+                    "held-out package, so the validator will refuse to derive tasks.",
+                    border_style="red",
+                )
             )
-        )
-        failures += 1
+            failures += 1
+        else:
+            # Public-only tree: the held-out family is provisioned separately (see
+            # --private-dir). Informational, not a failure — the validator enforces
+            # a held-out family at run time via preflight.
+            console.print(
+                Panel(
+                    "No held-out family in this tree — expected for the public corpus. "
+                    "The held-out packages are provisioned separately (--private-dir); "
+                    "the validator requires at least one at run time.",
+                    border_style="yellow",
+                )
+            )
 
     if failures and strict:
         raise typer.Exit(1)
