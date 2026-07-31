@@ -66,12 +66,19 @@ class TierAResult(BaseModel):
 
 
 class TierBResult(BaseModel):
-    """Wall-clock reality — reporting and gating, never consensus ranking."""
+    """Wall-clock and memory reality — reporting and gating, never consensus ranking.
+
+    The wall-clock fields (``median_speedup``/``speedup_lcb_95`` and the p95/p99
+    percentiles) require a calibrated host and are ``None`` on a host that cannot
+    measure them. Peak RSS is a kernel high-water mark and needs no calibration,
+    so a memory-only result carries ``peak_rss_improvement_pct`` with the
+    wall-clock fields left ``None``.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    median_speedup: float
-    speedup_lcb_95: float
+    median_speedup: float | None = None
+    speedup_lcb_95: float | None = None
     p95_improvement_pct: float | None = None
     p99_improvement_pct: float | None = None
     peak_rss_improvement_pct: float | None = None

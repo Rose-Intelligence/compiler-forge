@@ -421,11 +421,17 @@ def _print_result(result: LocalResult, *, json_output: bool) -> None:
         )
     if result.score.tier_b is not None:
         b = result.score.tier_b
-        console.print(
-            f"[bold]wall-clock[/bold] {b.median_speedup:.4f}x median, "
-            f"lower bound {b.speedup_lcb_95:.4f}x, "
-            f"sign agreement {'yes' if b.sign_agreement else 'NO'}"
-        )
+        if b.median_speedup is not None:
+            console.print(
+                f"[bold]wall-clock[/bold] {b.median_speedup:.4f}x median, "
+                f"lower bound {b.speedup_lcb_95:.4f}x, "
+                f"sign agreement {'yes' if b.sign_agreement else 'NO'}"
+            )
+        if b.peak_rss_improvement_pct is not None:
+            console.print(
+                f"[bold]peak memory[/bold] {b.peak_rss_improvement_pct:+.1f}% "
+                f"(positive means less memory)"
+            )
     if result.score.reference is not None:
         r = result.score.reference
         console.print(

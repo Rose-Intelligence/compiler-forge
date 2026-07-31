@@ -286,6 +286,19 @@ def test_crown_requires_passing_the_screen():
     assert registry.champion is None
 
 
+def test_memory_component_scored_without_calibrated_wall_clock():
+    """Peak memory is a kernel high-water mark, not a timed measurement, so a
+    memory-only Tier B result (wall-clock fields None) still scores the memory
+    component on a host without a calibrated wall-clock tier."""
+    from compilerforge.protocol.score import TierBResult
+
+    mem_only = TierBResult(peak_rss_improvement_pct=20.0)  # wall-clock fields None
+    assert mem_only.median_speedup is None
+    with_memory = score_components(capture=1.0, tier_a=_tier_a(), tier_b=mem_only, hidden=False)
+    without = score_components(capture=1.0, tier_a=_tier_a(), tier_b=None, hidden=False)
+    assert with_memory > without
+
+
 def test_first_artifact_takes_the_crown():
     registry = ChampionRegistry()
     aggregates = {"sha256:a": _aggregate("sha256:a", 0.5)}

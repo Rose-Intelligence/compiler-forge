@@ -412,7 +412,12 @@ class Evaluator:
         host returns ``None`` here and still contributes a full consensus weight.
         """
         if not self.ctx.tier_b_available or self.ctx.tier_b is None:
-            return None
+            # Wall-clock needs a calibrated host, but peak memory does not — it is
+            # the kernel's own high-water mark, independent of CPU scheduling noise.
+            # Measure it standalone so the memory component is still scored and
+            # reported on any host with GNU /usr/bin/time, with the wall-clock
+            # fields left None (honestly unmeasured).
+            return self._peak_memory_only(cand_ws, task, baseline)
 
         from compilerforge.evaluation.baseline import measure_peak_rss
 
@@ -470,6 +475,24 @@ class Evaluator:
             compile_seconds_candidate=build.compile_seconds,
         )
         return result.model_copy(update={"sign_agreement": agreement.agreed})
+
+    def _peak_memory_only(self, cand_ws: Workspace, task, baseline) -> TierBResult | None:
+        """Peak RSS without the calibrated wall-clock tier.
+
+        Peak resident set size is the kernel's own high-water mark, so it needs no
+        calibrated host — only GNU ``/usr/bin/time``. Returns a memory-only result
+        (wall-clock fields left ``None``) so the memory component is scored on any
+        host that has the tool; returns ``None`` when it does not, which forfeits
+        the component honestly rather than guessing.
+        """
+        from compilerforge.evaluation.baseline import measure_peak_rss
+
+        base_rss = baseline.peak_rss_bytes if baseline is not None else None
+        cand_rss = measure_peak_rss(task.benchmark.command, cand_ws.root)
+        if base_rss is None or cand_rss is None or base_rss <= 0:
+            return None
+        pct = (base_rss - cand_rss) / base_rss * 100.0
+        return TierBResult(peak_rss_improvement_pct=pct, measured_runs=0)
 
     # -- bookkeeping -----------------------------------------------------
 

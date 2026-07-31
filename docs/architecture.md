@@ -414,6 +414,12 @@ A component with no evidence contributes **nothing**, and the remainder is *not*
 renormalised. A validator without a calibrated host reports a smaller number
 rather than silently inflating the components it does have.
 
+Peak memory is measured independently of the calibrated wall-clock tier: peak RSS
+is the kernel's own high-water mark, so it needs only GNU `/usr/bin/time`, not a
+low-noise host. A validator on a shared cloud VM therefore still scores the memory
+component; only **tail-latency** and **compile-time**, which are genuinely
+wall-clock, require the calibrated Tier B host and are forfeited without it.
+
 Energy is reported but not scored, and will stay that way until validators can
 calibrate power counters consistently.
 
