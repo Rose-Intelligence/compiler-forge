@@ -208,6 +208,84 @@ def _aggregate(digest: str, capture: float, n: int = 6, family: str = "parsing")
     return ArtifactAggregate(digest, tuple(_outcome(capture, family=family) for _ in range(n)))
 
 
+def _mixed_aggregate(digest, public_captures, hidden_captures):
+    outs = [_outcome(c, hidden=False, ok=(c > 0.0)) for c in public_captures]
+    outs += [_outcome(c, hidden=True) for c in hidden_captures]
+    return ArtifactAggregate(digest, tuple(outs))
+
+
+# ---------------------------------------------------------------------------
+# two-stage validation: public screen, then held-out ranking
+# ---------------------------------------------------------------------------
+
+
+def test_public_screen_excludes_low_pass_rate():
+    """A miner that clears fewer than 60% of the public tasks earns nothing,
+    however strong its held-out capture."""
+    alloc = EmissionAllocator()
+    winner = _mixed_aggregate("sha256:win", [1.0, 1.0, 1.0, 1.0, 0.0], [1.5, 1.5])  # 4/5 public
+    laggard = _mixed_aggregate("sha256:lag", [1.0, 1.0, 0.0, 0.0, 0.0], [2.0, 2.0])  # 2/5 public
+    aggregates = {"sha256:win": winner, "sha256:lag": laggard}
+    hotkeys = {"sha256:win": "hk-win", "sha256:lag": "hk-lag"}
+    weights = alloc.allocate_generalist(aggregates, hotkeys=hotkeys)
+    assert weights.get("hk-lag", 0.0) == 0.0
+    assert weights.get("hk-win", 0.0) > 0.0
+
+
+def test_capture_floor_gates_the_screen():
+    """Clearing the correctness gates is not enough — a public task only counts
+    as passed when it captures at least the floor (0.25)."""
+    alloc = EmissionAllocator()
+    # gates pass on every public task, but capture 0.1 < 0.25 => 0% screen pass
+    trivial = _mixed_aggregate("sha256:t", [0.1, 0.1, 0.1, 0.1, 0.1], [1.0])
+    real = _mixed_aggregate("sha256:r", [0.3, 0.3, 0.3, 0.3, 0.3], [1.0])
+    weights = alloc.allocate_generalist(
+        {"sha256:t": trivial, "sha256:r": real},
+        hotkeys={"sha256:t": "hk-t", "sha256:r": "hk-r"},
+    )
+    assert weights.get("hk-t", 0.0) == 0.0
+    assert weights.get("hk-r", 0.0) > 0.0
+
+
+def test_screened_survivors_ranked_by_held_out():
+    """Among survivors, held-out capture decides the share."""
+    alloc = EmissionAllocator()
+    strong = _mixed_aggregate("sha256:s", [1.0] * 5, [2.0, 2.0])
+    weak = _mixed_aggregate("sha256:w", [1.0] * 5, [0.3, 0.3])
+    weights = alloc.allocate_generalist(
+        {"sha256:s": strong, "sha256:w": weak},
+        hotkeys={"sha256:s": "hk-s", "sha256:w": "hk-w"},
+    )
+    assert weights["hk-s"] > weights["hk-w"] > 0.0
+
+
+def test_empty_screen_falls_back_to_floor_not_burn():
+    """If nobody clears the screen, the honest-null floor still pays gate-passers
+    rather than leaving the vector unallocated (a silent burn)."""
+    alloc = EmissionAllocator()
+    a = _mixed_aggregate("sha256:a", [0.1] * 5, [0.1])
+    b = _mixed_aggregate("sha256:b", [0.1] * 5, [0.1])
+    weights = alloc.allocate_generalist(
+        {"sha256:a": a, "sha256:b": b},
+        hotkeys={"sha256:a": "hk-a", "sha256:b": "hk-b"},
+    )
+    assert sum(weights.values()) > 0.99
+    assert set(weights) == {"hk-a", "hk-b"}
+
+
+def test_crown_requires_passing_the_screen():
+    """A high-scoring artifact that fails the public screen cannot be crowned."""
+    registry = ChampionRegistry()
+    unscreened = _mixed_aggregate("sha256:x", [1.0, 1.0, 0.0, 0.0, 0.0], [2.0, 2.0])  # 2/5
+    result = registry.evaluate(
+        {"sha256:x": unscreened},
+        commitments={"sha256:x": NOW},
+        hotkeys={"sha256:x": "hk-x"},
+    )
+    assert result is None
+    assert registry.champion is None
+
+
 def test_first_artifact_takes_the_crown():
     registry = ChampionRegistry()
     aggregates = {"sha256:a": _aggregate("sha256:a", 0.5)}
@@ -271,11 +349,11 @@ def test_no_crown_change_on_a_noisy_round():
     commitments = {"sha256:a": NOW, "sha256:b": NOW}
     hotkeys = {"sha256:a": "hk-a", "sha256:b": "hk-b"}
     registry.evaluate(
-        {"sha256:a": _aggregate("sha256:a", 0.10)}, commitments=commitments, hotkeys=hotkeys
+        {"sha256:a": _aggregate("sha256:a", 0.30)}, commitments=commitments, hotkeys=hotkeys
     )
 
     aggregates = {
-        "sha256:a": _aggregate("sha256:a", 0.10),
+        "sha256:a": _aggregate("sha256:a", 0.30),
         "sha256:b": _aggregate("sha256:b", 2.00),
     }
     for _ in range(10):

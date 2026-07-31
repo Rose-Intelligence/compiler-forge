@@ -85,6 +85,26 @@ class ArtifactAggregate:
         return sum(1 for o in self.outcomes if o.honest_null) / len(self.outcomes)
 
     @property
+    def held_out_score(self) -> float:
+        """Stage-2 ranking signal: geometric-mean capture over the hidden tasks."""
+        return self.hidden_capture
+
+    def public_pass_rate(self, capture_floor: float) -> float:
+        """Stage-1 screen input: the fraction of *public* tasks this artifact both
+        cleared (every correctness gate) and captured at least ``capture_floor`` of
+        the reference speedup on.
+        """
+        public = [o for o in self.outcomes if not o.hidden]
+        if not public:
+            return 0.0
+        passed = sum(1 for o in public if o.gates_passed and o.capture >= capture_floor)
+        return passed / len(public)
+
+    def screened(self, threshold: float, capture_floor: float) -> bool:
+        """Stage 1: passes strictly more than ``threshold`` of the public tasks."""
+        return self.public_pass_rate(capture_floor) > threshold
+
+    @property
     def standard_error(self) -> float:
         """Feeds the dethronement gap: more evidence, smaller required margin."""
         return standard_error_of_mean([o.capture for o in self.outcomes])

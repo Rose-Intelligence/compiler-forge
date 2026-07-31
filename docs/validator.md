@@ -181,8 +181,8 @@ Key arguments:
 | `--corpus.dir` | `./corpus` | The public task packages |
 | `--corpus.private_dir` | — | The held-out packages, provisioned separately; merged with `--corpus.dir`. Required to run held-out tasks |
 | `--neuron.epoch_length` | 7200 | Blocks per round (~24h). A full round cannot complete in a default 72-minute tempo |
-| `--neuron.public_tasks` | 25 | Public corpus tasks per round |
-| `--neuron.hidden_tasks` | 3 | Held-out generalisation tasks. At least one is required |
+| `--neuron.public_tasks` | 25 | Public tasks per round — the stage-1 screen runs on these, so cover the whole public set |
+| `--neuron.hidden_tasks` | 3 | Held-out tasks per round — the stage-2 ranking runs on these. At least one is required |
 | `--neuron.freeze_lead_blocks` | 300 | Blocks between freezing artifacts and drawing the selecting hash |
 | `--neuron.heartbeat_blocks` | 900 | Weight heartbeat interval. **Not optional** — see below |
 | `--measurement.tier_b` | off | Enable wall-clock. Requires a calibrated host |

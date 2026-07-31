@@ -110,20 +110,39 @@ class EmissionAllocator:
         *,
         hotkeys: dict[str, str],
     ) -> dict[str, float]:
-        """Mechanism 0 — the generalist championship.
+        """Mechanism 0 — a public competence screen, then a held-out ranking.
 
-        Returns hotkey -> weight, normalised to sum to 1.0. The champion takes the
-        bulk; the floor pool pays honest null results; the residual from champion
-        decay flows to the floor rather than to a burn UID.
+        Stage 1 keeps only miners that cleared the public screen (passed strictly
+        more than ``public_pass_threshold`` of the public tasks, each at capture
+        >= ``pass_capture_floor``). Stage 2 ranks the survivors by held-out
+        (generalisation) capture: the crowned champion takes the bulk, the other
+        survivors share the floor pool in proportion to held-out capture, and
+        miners that failed the screen earn nothing.
+
+        If *no* miner clears the screen, the round falls back to the honest-null
+        floor across gate-passers rather than leaving the vector unallocated —
+        withholding emission is a silent burn (Rule 1: floor, do not burn).
+
+        Returns hotkey -> weight, normalised to sum to 1.0.
         """
         e = SPEC.emission
+        s = SPEC.screening
         champion = self.champions.champion
-        weights: dict[str, float] = {}
 
+        screened = {
+            digest: agg
+            for digest, agg in aggregates.items()
+            if agg.screened(s.public_pass_threshold, s.pass_capture_floor)
+        }
+        if not screened:
+            return _normalise(self._floor_distribution(aggregates, hotkeys, 1.0))
+
+        weights: dict[str, float] = {}
         floor_share = e.floor_pool_share
         champion_share = 1.0 - floor_share
+        champion_screened = champion is not None and champion.artifact_digest in screened
 
-        if champion is not None:
+        if champion_screened:
             decay = champion.decay_multiplier()
             if decay < 1.0:
                 logger.info(
@@ -133,22 +152,63 @@ class EmissionAllocator:
                     decay,
                 )
             paid = champion_share * decay
-            # Rule 2: the decayed remainder joins the floor pool. It is never
-            # redirected to an owner hotkey, which would raise b_i.
+            # Rule 2: the decayed remainder joins the survivors' pool, never an
+            # owner hotkey.
             floor_share += champion_share - paid
             hotkey = champion.miner_hotkey or hotkeys.get(champion.artifact_digest, "")
             if hotkey:
                 weights[hotkey] = weights.get(hotkey, 0.0) + paid
             else:
                 floor_share += paid
+            others = {d: a for d, a in screened.items() if d != champion.artifact_digest}
         else:
+            # No screened champion this round: the whole vector is ranked by
+            # held-out capture across every survivor.
             floor_share = 1.0
+            others = screened
 
-        floor = self._floor_distribution(aggregates, hotkeys, floor_share)
-        for hotkey, weight in floor.items():
+        ranked = self._held_out_distribution(others, hotkeys, floor_share)
+        if not ranked:
+            # No other screened survivor to receive the pool (including any decayed
+            # remainder from a stagnant champion): pay the honest-null floor across
+            # gate-passers rather than handing it back to the champion. Rule 2 —
+            # stagnation decay still bites, and nothing is burned.
+            ranked = self._floor_distribution(aggregates, hotkeys, floor_share)
+        for hotkey, weight in ranked.items():
             weights[hotkey] = weights.get(hotkey, 0.0) + weight
 
         return _normalise(weights)
+
+    def _held_out_distribution(
+        self,
+        screened: dict[str, ArtifactAggregate],
+        hotkeys: dict[str, str],
+        share: float,
+    ) -> dict[str, float]:
+        """Share ``share`` among screened survivors in proportion to held-out capture.
+
+        Held-out capture is the stage-2 signal, so a survivor that cleared the
+        public screen but generalises poorly earns little. When no survivor has
+        positive held-out capture yet, the pool is split evenly among them — they
+        have all proven public competence, and the emission is allocated, not
+        withheld.
+        """
+        if share <= 0:
+            return {}
+        eligible: dict[str, float] = {}
+        for digest, agg in screened.items():
+            hotkey = hotkeys.get(digest)
+            if not hotkey:
+                continue
+            eligible[hotkey] = eligible.get(hotkey, 0.0) + agg.held_out_score
+        total = sum(eligible.values())
+        if total <= 0:
+            survivors = [hk for hk in eligible]
+            if not survivors:
+                return {}
+            per = share / len(survivors)
+            return {hk: per for hk in survivors}
+        return {hotkey: share * value / total for hotkey, value in eligible.items()}
 
     def allocate_specialist_and_bounty(
         self,

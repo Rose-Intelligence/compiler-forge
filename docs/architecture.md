@@ -439,6 +439,32 @@ cannot take the generalist crown by dominating a single library family.
 
 ---
 
+## Two-stage validation
+
+Generalist weight is assigned in two stages, so the held-out set — not a single
+score component — is what decides rank.
+
+**Stage 1, the public screen.** A miner is ranked only if it clears **more than
+60%** of the public tasks, where a public task *passes* when it clears every
+correctness gate **and** captures at least **0.25** of the reference speedup.
+Valid-but-trivial output does not clear the screen; a miner below the bar earns
+nothing that round.
+
+**Stage 2, the held-out ranking.** The survivors are ranked by their capture on
+the held-out (generalisation) suite. The crown goes to the best survivor and the
+rest share the pool in proportion to held-out capture, so an agent that clears the
+public screen but generalises poorly ranks last.
+
+The screen is a proportion, so it self-scales as the corpus grows, and it makes
+overfitting worthless: clearing the public set is the price of entry, and the
+private set nobody can pre-tune to is what pays. Both stages read the same
+block-hash-derived round, so commit-before-entropy still holds. If no miner clears
+the screen, the round falls back to the honest-null floor rather than withholding
+emission (a silent burn). The thresholds are versioned consensus constants
+(`spec.ScreeningSpec`); changing them is a `spec_version` bump.
+
+---
+
 ## Dethronement
 
 The commercial deployment path uses exactly one default agent, so the mechanism

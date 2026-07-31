@@ -102,10 +102,19 @@ class ChampionRegistry:
         if not aggregates:
             return None
 
+        s = SPEC.screening
+        screened = {
+            digest: agg
+            for digest, agg in aggregates.items()
+            if agg.screened(s.public_pass_threshold, s.pass_capture_floor)
+        }
+
         if self.champion is None:
-            # Bootstrapping: the highest aggregate takes the crown, with the
-            # earliest commitment breaking ties.
-            best = self._best(aggregates, commitments)
+            # Bootstrapping: the highest *screened* aggregate takes the crown, with
+            # the earliest commitment breaking ties. No screened artifact, no crown.
+            if not screened:
+                return None
+            best = self._best(screened, commitments)
             self.champion = Champion(
                 artifact_digest=best.artifact_digest,
                 miner_hotkey=hotkeys.get(best.artifact_digest, ""),
@@ -127,14 +136,25 @@ class ChampionRegistry:
             return None
 
         incumbent = aggregates.get(self.champion.artifact_digest)
-        incumbent_score = (
-            incumbent.generalist_score if incumbent is not None else self.champion.crowned_score
-        )
-        incumbent_cells = incumbent.cell_scores() if incumbent is not None else {}
+        if incumbent is not None and self.champion.artifact_digest in screened:
+            incumbent_score = incumbent.generalist_score
+            incumbent_cells = incumbent.cell_scores()
+        elif incumbent is not None:
+            # The champion fell out of the public screen this round; any screened
+            # challenger should be able to take the crown from it.
+            incumbent_score = 0.0
+            incumbent_cells = {}
+        else:
+            incumbent_score = self.champion.crowned_score
+            incumbent_cells = {}
 
         best_challenge: ChallengeResult | None = None
         for digest, agg in sorted(aggregates.items()):
             if digest == self.champion.artifact_digest:
+                continue
+            if digest not in screened:
+                # Stage 1: an artifact that has not cleared the public screen cannot
+                # take the crown, however well it scores.
                 continue
             result = self._challenge(agg, incumbent_score, incumbent_cells)
             if not result.dethroned:

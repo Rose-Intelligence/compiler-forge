@@ -24,7 +24,7 @@ INTERFACE_VERSION: Final[str] = "cf/1"
 # coverage is required and no single favourable task can reach (and freeze) the
 # dethronement ceiling. Changing scoring is a fork: artifacts scored under a
 # different spec version are not comparable.
-SPEC_VERSION: Final[int] = 2
+SPEC_VERSION: Final[int] = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +171,25 @@ class SafetySpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ScreeningSpec:
+    """Two-stage validation: a public competence screen, then a held-out ranking.
+
+    A miner is ranked and paid only if it clears the public screen; the held-out
+    (generalisation) suite then decides its weight. This makes the held-out set the
+    decisive signal rather than a small component, and it self-scales as the corpus
+    grows because the screen is a proportion, not a count.
+    """
+
+    # A public task "passes" when it clears every correctness gate and captures at
+    # least this fraction of the reference speedup. "Produced valid output" is too
+    # weak a bar; this requires genuine optimization.
+    pass_capture_floor: float = 0.25
+    # A miner clears the screen when it passes strictly more than this fraction of
+    # the public tasks it was scored on.
+    public_pass_threshold: float = 0.60
+
+
+@dataclass(frozen=True, slots=True)
 class ConsensusSpec:
     """The complete set of constants that define one comparable scoring regime."""
 
@@ -186,6 +205,7 @@ class ConsensusSpec:
     emission: EmissionSpec = field(default_factory=EmissionSpec)
     budget: BudgetSpec = field(default_factory=BudgetSpec)
     safety: SafetySpec = field(default_factory=SafetySpec)
+    screening: ScreeningSpec = field(default_factory=ScreeningSpec)
 
     def __post_init__(self) -> None:
         total = self.components.total()
@@ -201,6 +221,10 @@ class ConsensusSpec:
             value = getattr(self.emission, name)
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"emission.{name} must be in [0, 1], got {value}")
+        for name in ("pass_capture_floor", "public_pass_threshold"):
+            value = getattr(self.screening, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"screening.{name} must be in [0, 1], got {value}")
 
     def digest(self) -> str:
         """Content hash of the whole regime.
